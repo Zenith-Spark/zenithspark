@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import CustomUser , InvestmentPlan, Investment, Notification, Network, Deposit, Withdrawal
+from .models import CustomUser , InvestmentPlan, Investment, Notification, Network, Deposit, Withdrawal, KYC
 
 @admin.register(CustomUser)
 class CustomUserAdmin(UserAdmin):
@@ -80,3 +80,12 @@ class WithdrawalAdmin(admin.ModelAdmin):
     list_display = ('transaction_id', 'user', 'network', 'amount_usd', 'amount_crypto', 'wallet_address', 'status', 'created_at', 'updated_at')
     search_fields = ('transaction_id', 'user__email_address', 'network__name')
     list_filter = ('status', 'created_at', 'updated_at')
+
+
+
+@admin.register(KYC)
+class KYCAdmin(admin.ModelAdmin):
+    list_display = ['user', 'status', 'uploaded_at']
+    list_filter = ['status', 'uploaded_at']
+    search_fields = ['user__email_address']
+    readonly_fields = ['uploaded_at']

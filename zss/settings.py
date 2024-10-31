@@ -200,3 +200,5 @@ AUTHENTICATION_BACKENDS = [
     'zssapi.backends.EmailBackend',
     'django.contrib.auth.backends.ModelBackend',  # Keep this as backup
 ]
+
+MAX_UPLOAD_SIZE = 5242880 

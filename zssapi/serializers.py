@@ -1,5 +1,5 @@
 from rest_framework.serializers import ModelSerializer, EmailField, CharField, IntegerField, SerializerMethodField
-from .models import CustomUser, Investment, Deposit, Withdrawal, Network, Notification, InvestmentPlan
+from .models import CustomUser, Investment, Deposit, Withdrawal, Network, Notification, InvestmentPlan, KYC
 from rest_framework.exceptions import ValidationError
 from rest_framework import serializers
 from django.db.models import Sum
@@ -230,3 +230,43 @@ class AdminDepositSerializer(ModelSerializer):
         model = Deposit
         fields = '__all__'
 
+
+class KYCUploadSerializer(ModelSerializer):
+    class Meta:
+        model = KYC
+        fields = ['document']
+
+class UserKYCStatusSerializer(ModelSerializer):
+    kyc_status = SerializerMethodField()
+
+    class Meta:
+        model = CustomUser
+        fields = ['email_address', 'full_name', 'kyc_status']
+
+    def get_kyc_status(self, obj):
+        try:
+            return obj.kyc.status
+        except KYC.DoesNotExist:
+            return "not_submitted"
+        
+
+class KYCAdminSerializer(ModelSerializer):
+    user_email = EmailField(source='user.email_address')
+    user_full_name = SerializerMethodField()
+
+    class Meta:
+        model = KYC
+        fields = ['id', 'user_email', 'user_full_name', 'document', 'status', 'uploaded_at']
+
+    def get_user_full_name(self, obj):
+        return f"{obj.user.first_name} {obj.user.last_name}"
+
+class KYCStatusUpdateSerializer(ModelSerializer):
+    class Meta:
+        model = KYC
+        fields = ['status']
+
+    def validate_status(self, value):
+        if value not in ['approved', 'rejected']:
+            raise ValidationError("Status must be either 'approved' or 'rejected'")
+        return value

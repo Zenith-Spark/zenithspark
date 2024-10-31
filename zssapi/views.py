@@ -14,7 +14,7 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.views import TokenRefreshView
-from .serializers import CustomUserSerializer, AdminDashboardSerializer, AdminTransactionHistorySerializer, AdminInvestmentSerializer, AdminDepositSerializer, InvestmentSerializer,DepositSerializer, MakeDepositSerializer, NetworkSerializer,ReferralUserSerializer, ReferralSerializer, WithdrawalSerializer, MakeWithdrawalSerializer, ChangePasswordSerializer, ForgotPasswordSerializer,  UpdateDepositStatusSerializer, AdminWithdrawalSerializer, InvestmentPlanSerializer, CustomUser,Investment,  InvestmentPlan, Deposit, Withdrawal, Network, Notification, NotificationSerializer
+from .serializers import CustomUserSerializer, AdminDashboardSerializer, AdminTransactionHistorySerializer, AdminInvestmentSerializer, AdminDepositSerializer, UserKYCStatusSerializer, KYCUploadSerializer, KYCAdminSerializer, KYCStatusUpdateSerializer, InvestmentSerializer,DepositSerializer, MakeDepositSerializer, NetworkSerializer,ReferralUserSerializer, ReferralSerializer, WithdrawalSerializer, MakeWithdrawalSerializer, ChangePasswordSerializer, ForgotPasswordSerializer,  UpdateDepositStatusSerializer, AdminWithdrawalSerializer, InvestmentPlanSerializer, CustomUser,Investment,  InvestmentPlan, Deposit, Withdrawal, Network, Notification, KYC, NotificationSerializer
 from .utils import generate_random_password
 from decimal import Decimal
 import requests
@@ -1014,3 +1014,70 @@ class AdminTransactionEditView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+
+class KYCUploadView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        try:
+            # Check if user already has KYC
+            kyc, created = KYC.objects.get_or_create(user=request.user)
+            serializer = KYCUploadSerializer(kyc, data=request.data)
+            if serializer.is_valid():
+                serializer.save(user=request.user, status='pending')
+                return Response({
+                    'message': 'KYC document uploaded successfully',
+                    'status': 'pending'
+                }, status=status.HTTP_200_OK)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class UserKYCStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+    def get(self, request):
+        try:
+            serializer = UserKYCStatusSerializer(request.user)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+class AdminKYCListView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def get(self, request):
+        try:
+            kyc_documents = KYC.objects.all().order_by('-uploaded_at')
+            serializer = KYCAdminSerializer(kyc_documents, many=True)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class AdminKYCUpdateView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def put(self, request, kyc_id):
+        try:
+            kyc = KYC.objects.get(id=kyc_id)
+            serializer = KYCStatusUpdateSerializer(kyc, data=request.data)
+            if serializer.is_valid():
+                serializer.save()
+                return Response({
+                    'message': 'KYC status updated successfully',
+                    'status': kyc.status
+                }, status=status.HTTP_200_OK)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except KYC.DoesNotExist:
+            return Response({
+                'error': 'KYC document not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

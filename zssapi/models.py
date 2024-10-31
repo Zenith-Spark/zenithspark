@@ -189,3 +189,17 @@ class Withdrawal(models.Model):
         return f"{self.transaction_id} - {self.user.email_address} - {self.amount_usd} USD"
 
 
+class KYC(models.Model):
+    STATUS_CHOICES = (
+        ('pending', 'Pending'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected')
+    )
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE)
+    document = models.FileField(upload_to='kyc_documents/')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+
+        return f"KYC for {self.user.email_address}"

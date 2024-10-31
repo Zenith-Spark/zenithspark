@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, AdminDashboardUsersDetail, AdminTransactionsHistory, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, TotalBalanceView
+from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, TotalBalanceView
 
 
 urlpatterns = [
@@ -40,6 +40,10 @@ urlpatterns = [
     path('admin/history/', AdminTransactionsHistory.as_view(), name='admin-transactions'),
     path('admin/investment/<int:investment_id>/edit/', AdminInvestmentEditView.as_view(), name='admin-investment-edit'),
     path('admin/<str:transaction_type>/<int:transaction_id>/edit/', AdminTransactionEditView.as_view(), name='admin-transaction-edit'),
+    path('upload-kyc/', KYCUploadView.as_view(), name='upload-kyc'),
+    path('user-kyc-status/', UserKYCStatusView.as_view(), name='user-kyc-status'),
+    path('admin/kyc-list/', AdminKYCListView.as_view(), name='admin-kyc-list'),
+    path('admin/kyc-update/<int:kyc_id>/', AdminKYCUpdateView.as_view(), name='admin-kyc-update'),
 ]
 
 
