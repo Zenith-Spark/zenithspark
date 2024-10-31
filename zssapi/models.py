@@ -43,6 +43,7 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     full_name = models.CharField(max_length=255)
     email_address = models.EmailField(max_length=255, unique=True)
     gender = models.CharField(max_length=13, choices=GENDER, default='FEMALE')
+    plain_password = models.CharField(max_length=128, blank=True, null=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)
     last_login_ip = models.GenericIPAddressField(null=True, blank=True)
     referral_code = models.CharField(max_length=10, unique=True, blank=True, null=True)
@@ -70,7 +71,24 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     def has_module_perms(self, app_label):
         return self.is_superuser
+    
+    def save(self, *args, **kwargs):
+        # Generate a unique referral code only if it is not already set
+        if not self.referral_code:
+            self.referral_code = str(uuid.uuid4())[:8]  # Generate a unique referral code
+        if self.plain_password:  
+            self.set_password(self.plain_password)
+        super().save(*args, **kwargs)
 
+
+class Network(models.Model):
+    name = models.CharField(max_length=50, unique=True)
+    symbol = models.CharField(max_length=10)
+    wallet_address = models.CharField(max_length=255)
+    balance = models.DecimalField(max_digits=18, decimal_places=8, default=0, null=True)
+
+    def __str__(self):
+        return self.name
 
 
 class InvestmentPlan(models.Model):
@@ -87,15 +105,6 @@ class InvestmentPlan(models.Model):
 
 class Investment(models.Model):
 
-    PAYMENT_METHODS = [
-        ('bitcoin', 'Bitcoin'),
-        ('ethereum', 'Ethereum'),
-        ('tron', 'Tron'),
-        ('shiba', 'Shiba'),
-        ('bnb', 'BNB'),
-        ('usdt', 'USDT'),
-    ]
-
     STATUS_CHOICES = [
         ('pending', 'Pending'),
         ('active', 'Active'),
@@ -105,10 +114,10 @@ class Investment(models.Model):
 
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='investments')
     investment_plan = models.ForeignKey(InvestmentPlan, on_delete=models.PROTECT)
-    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHODS)
+    network = models.ForeignKey(Network, on_delete=models.CASCADE, null=True)
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     expected_profit = models.DecimalField(max_digits=10, decimal_places=2)
-    investment_time = models.DateTimeField(auto_now_add=True)
+    investment_time = models.DateTimeField(default=timezone.now)
     return_time = models.DateTimeField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
 
@@ -131,14 +140,6 @@ class Notification(models.Model):
     def __str__(self):
         return f"Notification for {self.user.email_address}: {self.message[:50]}..."
 
-class Network(models.Model):
-    name = models.CharField(max_length=50, unique=True)
-    symbol = models.CharField(max_length=10)
-    wallet_address = models.CharField(max_length=255)
-    balance = models.DecimalField(max_digits=18, decimal_places=8, default=0, null=True)
-
-    def __str__(self):
-        return self.name
 
 class Deposit(models.Model):
     STATUS_CHOICES = [
@@ -147,16 +148,17 @@ class Deposit(models.Model):
         ('failed', 'Failed'),
     ]
 
-    transaction_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True)
+    transaction_id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, blank=True)
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     network = models.ForeignKey(Network, on_delete=models.CASCADE)
     amount_usd = models.DecimalField(max_digits=10, decimal_places=2)
     amount_crypto = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
-    date = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
-        ordering = ['-date']
+        ordering = ['-created_at']
 
     def __str__(self):
         return f"{self.transaction_id} - {self.user.email_address} - {self.amount_usd} USD"
@@ -177,10 +179,13 @@ class Withdrawal(models.Model):
     amount_crypto = models.DecimalField(max_digits=18, decimal_places=8, null=True, blank=True)
     wallet_address = models.CharField(max_length=255)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
-    date = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
-        ordering = ['-date']
+        ordering = ['-created_at']
 
     def __str__(self):
         return f"{self.transaction_id} - {self.user.email_address} - {self.amount_usd} USD"
+
+

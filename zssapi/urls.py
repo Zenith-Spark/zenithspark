@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, NetworkAPIView, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, UpdateNetworkBalanceAPIView, TotalBalanceView
+from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, AdminDashboardUsersDetail, AdminTransactionsHistory, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, TotalBalanceView
 
 
 urlpatterns = [
@@ -15,22 +15,31 @@ urlpatterns = [
     path('change-password/', ChangePassword.as_view(), name='change-password'),
     path('profile/', UserProfile.as_view(), name='user-profile'),
     path('get-plans/', InvestmentPlanListView.as_view(), name='investment-plans'),
-    path('create-plans/', InvestmentPlanAdminView.as_view(), name='create-investment-plan'),
-    path('update-plans/<int:pk>/', InvestmentPlanAdminView.as_view(), name='update-investment-plan'),
+    path('admin/create-plans/', InvestmentPlanAdminView.as_view(), name='create-investment-plan'),
+    path('admin/update-plans/<str:investment_plan_name>/', InvestmentPlanAdminView.as_view(), name='update-investment-plan'),
     path('investments/', InvestmentAPIView.as_view(), name='investments'), 
     path('admin/get-investments/', InvestmentAdminView.as_view(), name='admin-investments'),
     path('admin/update-investments/<int:pk>/', InvestmentAdminView.as_view(), name='update-investment'),
-    path('networks/', NetworkAPIView.as_view(), name='networks'),
+    path('networks/', Networks.as_view(), name='networks'),
+    path('networks/<str:network_name>/', Networks.as_view(), name='network-detail'),
     path('deposits/', DepositAPIView.as_view(), name='deposits'),
+    path('deposits/<str:network_name>/', DepositAPIView.as_view(), name='deposits-network'),
     path('admin/deposits/<str:deposit_id>/', AdminUpdateDepositStatusAPIView.as_view(), name='admin-update-deposit'),
     path('withdrawals/', WithdrawalAPIView.as_view(), name='withdrawals'),
+    path('withdrawals/<str:network_name>/', WithdrawalAPIView.as_view()),
     path('admin/withdrawals/<str:withdrawal_id>/', AdminWithdrawalConfirmationView.as_view(), name='admin-confirm-withdrawal'),
     path('notifications/', NotificationAPIView.as_view(), name='notifications'),
     path('notifications/<int:notification_id>/', NotificationAPIView.as_view(), name='notification-detail'),
     path('network-history/<str:network_name>/', NetworkTransactionHistoryAPIView.as_view(), name='network-history'),
     path('exchange-rates/', ExchangeRatesAPIView.as_view(), name='exchange-rates'),
-    path('update-network-balance/', UpdateNetworkBalanceAPIView.as_view(), name='update-network-balance'),
+    path('network-balances/', NetworkBalanceView.as_view(), name='network-balances'),
+    path('network-balance/<str:network_name>/', NetworkBalanceView.as_view(), name='network-balance'),
+    path('update-transaction-status/', UpdateTransactionStatusView.as_view(), name='update-transaction-status'),
     path('total-balance/', TotalBalanceView.as_view(), name='total-balance'),
+    path('admin/users-detail/', AdminDashboardUsersDetail.as_view(), name='admin-dashboard'),
+    path('admin/history/', AdminTransactionsHistory.as_view(), name='admin-transactions'),
+    path('admin/investment/<int:investment_id>/edit/', AdminInvestmentEditView.as_view(), name='admin-investment-edit'),
+    path('admin/<str:transaction_type>/<int:transaction_id>/edit/', AdminTransactionEditView.as_view(), name='admin-transaction-edit'),
 ]
 
 

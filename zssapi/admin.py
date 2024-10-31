@@ -53,7 +53,7 @@ class InvestmentPlanAdmin(admin.ModelAdmin):
 
 @admin.register(Investment)
 class InvestmentAdmin(admin.ModelAdmin):
-    list_display = ('user', 'investment_plan', 'payment_method', 'amount', 'expected_profit', 'investment_time', 'return_time', 'status')
+    list_display = ('user', 'investment_plan', 'network', 'amount', 'expected_profit', 'investment_time', 'return_time', 'status')
     search_fields = ('user__email_address', 'investment_plan__name')
     list_filter = ('status', 'investment_time')
 
@@ -71,12 +71,12 @@ class NetworkAdmin(admin.ModelAdmin):
 
 @admin.register(Deposit)
 class DepositAdmin(admin.ModelAdmin):
-    list_display = ('transaction_id', 'user', 'network', 'amount_usd', 'amount_crypto', 'status', 'date')
+    list_display = ('transaction_id', 'user', 'network', 'amount_usd', 'amount_crypto', 'status', 'created_at', 'updated_at')
     search_fields = ('transaction_id', 'user__email_address', 'network__name')
-    list_filter = ('status', 'date')
+    list_filter = ('status', 'created_at', 'updated_at')
 
 @admin.register(Withdrawal)
 class WithdrawalAdmin(admin.ModelAdmin):
-    list_display = ('transaction_id', 'user', 'network', 'amount_usd', 'amount_crypto', 'wallet_address', 'status', 'date')
+    list_display = ('transaction_id', 'user', 'network', 'amount_usd', 'amount_crypto', 'wallet_address', 'status', 'created_at', 'updated_at')
     search_fields = ('transaction_id', 'user__email_address', 'network__name')
-    list_filter = ('status', 'date')
+    list_filter = ('status', 'created_at', 'updated_at')

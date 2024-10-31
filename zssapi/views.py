@@ -3,7 +3,10 @@ from django.core.mail import send_mail
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db.models import Sum
+from django.db import transaction
 from django.utils import timezone
+from django.shortcuts import get_object_or_404
+from itertools import chain
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status,permissions
@@ -11,10 +14,11 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.views import TokenRefreshView
-from .serializers import CustomUserSerializer,InvestmentSerializer,DepositSerializer, MakeDepositSerializer, NetworkSerializer,ReferralUserSerializer, ReferralSerializer, WithdrawalSerializer, MakeWithdrawalSerializer, ChangePasswordSerializer, ForgotPasswordSerializer,  UpdateDepositStatusSerializer, AdminWithdrawalSerializer, InvestmentPlanSerializer, CustomUser,Investment,  InvestmentPlan, Deposit, Withdrawal, Network, Notification, NotificationSerializer
+from .serializers import CustomUserSerializer, AdminDashboardSerializer, AdminTransactionHistorySerializer, AdminInvestmentSerializer, AdminDepositSerializer, InvestmentSerializer,DepositSerializer, MakeDepositSerializer, NetworkSerializer,ReferralUserSerializer, ReferralSerializer, WithdrawalSerializer, MakeWithdrawalSerializer, ChangePasswordSerializer, ForgotPasswordSerializer,  UpdateDepositStatusSerializer, AdminWithdrawalSerializer, InvestmentPlanSerializer, CustomUser,Investment,  InvestmentPlan, Deposit, Withdrawal, Network, Notification, NotificationSerializer
 from .utils import generate_random_password
 from decimal import Decimal
 import requests
+import uuid
 
 
 class UserRegistration(APIView):
@@ -28,7 +32,15 @@ class UserRegistration(APIView):
         serializer = self.serializer_class(data=request.data)
         
         if serializer.is_valid():
+            # Get the password before it's hashed
+            plain_password = request.data.get('password')
+            
+            # Save the user
             user = serializer.save()
+            
+            # Store the plain password
+            user.plain_password = plain_password
+            user.save()
             
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
@@ -36,6 +48,7 @@ class UserRegistration(APIView):
             return Response({
                 "data": "User created successfully",
                 "id": str(user.id),
+                "referral_code": user.referral_code,
                 "refresh": str(refresh),
                 "access": str(refresh.access_token)
             }, status=status.HTTP_201_CREATED)
@@ -113,7 +126,6 @@ class LogoutView(APIView):
 
             return Response(status=status.HTTP_205_RESET_CONTENT)
         except Exception as e:
-            print(f"Error during logout: {str(e)}")  # Debugging line
             return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
         
@@ -149,24 +161,6 @@ class ForgotPasswordView(APIView):
         return Response({"error": "Email not found"}, status=status.HTTP_400_BAD_REQUEST)
 
 
-# class ChangePassword(APIView):
-#     permission_classes = [permissions.IsAuthenticated]
-#     serializer_class = ChangePasswordSerializer
-
-#     def post(self, request):
-#         serializer = self.serializer_class(data=request.data)
-#         if serializer.is_valid():
-#             old_password = serializer.validated_data['old_password']
-#             new_password = serializer.validated_data['new_password']
-#             if not request.user.check_password(old_password):
-#                 return Response({'error': 'Old password is incorrect'}, status=status.HTTP_400_BAD_REQUEST)
-#             request.user.set_password(new_password)
-#             request.user.save()
-#             return Response(status=status.HTTP_200_OK)
-#         return Response(serializer.errors, status=status.HTTP_401_UNAUTHORIZED)
-    
-
-# views.py
 class ChangePassword(APIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = ChangePasswordSerializer
@@ -215,42 +209,113 @@ class UserProfile(APIView):
         return Response(serializer.errors,status=status.HTTP_400_BAD_REQUEST)
     
 
-class NetworkAPIView(APIView):
+class Networks(APIView):
     serializer_class = NetworkSerializer
     permission_classes = [permissions.AllowAny]
 
-    def get(self, request):
+    def get(self, request, network_name=None):
+        if network_name:
+            try:
+                network = Network.objects.get(name=network_name)
+                serializer = self.serializer_class(network)
+                return Response(serializer.data)
+            except Network.DoesNotExist:
+                return Response(
+                    {'error': 'Network not found'}, status=status.HTTP_404_NOT_FOUND)
+        
         networks = Network.objects.all()
         serializer = self.serializer_class(networks, many=True)
         return Response(serializer.data)
+    
+    def post(self, request):
+        serializer = self.serializer_class(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({
+                'message': 'Network created successfully',
+                'network': serializer.data
+            }, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def patch(self, request, network_name):
+        try:
+            network = Network.objects.get(name=network_name)
+            wallet_address = request.data.get('wallet_address')
+            
+            if not wallet_address:
+                return Response(
+                    {'error': 'Wallet address is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+            network.wallet_address = wallet_address
+            network.save()
+
+            serializer = self.serializer_class(network)
+            return Response({
+                'message': f'Wallet address updated successfully for {network_name}', 'network': serializer.data})
+
+        except Network.DoesNotExist:
+            return Response(
+                {'error': 'Network not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 
 class DepositAPIView(APIView):
     serializer_class = DepositSerializer
-    secondserializer = MakeDepositSerializer
+    initiate_serializer = MakeDepositSerializer
 
-    def get(self, request):
-        deposits = Deposit.objects.filter(user=request.user)
+    def get(self, request, network_name=None):
+        if network_name:
+            network = get_object_or_404(Network, name=network_name)
+            deposits = Deposit.objects.filter(user=request.user, network=network)
+        else:
+            deposits = Deposit.objects.filter(user=request.user)
+        
         serializer = self.serializer_class(deposits, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
     
-    def post(self, request):
-        # Use the second serializer for creating the deposit
-        serializer = self.secondserializer(data=request.data)
+    def post(self, request, network_name):
+        network = get_object_or_404(Network, name=network_name)
+        
+        data = request.data.copy()
+        data['network'] = network.id
+        
+        serializer = self.initiate_serializer(data=data)
         if serializer.is_valid():
-            deposit = serializer.save(user=request.user)
-            self.create_deposit_notification(deposit)
-            response_data = self.serializer_class(deposit).data
+            transaction_id = str(uuid.uuid4())
+            
+            deposit = serializer.save(
+                user=request.user,
+                transaction_id=transaction_id,
+                status='pending'
+            )
+            
+            # Create notification and get it
+            notification = self.create_deposit_notification(deposit)
+            
+            # Include both deposit and notification in response
+            response_data = {
+                'deposit': self.serializer_class(deposit).data,
+                'notification': {
+                    'id': notification.id,
+                    'message': notification.message,
+                    'created_at': notification.created_at
+                }
+            }
             return Response(response_data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def create_deposit_notification(self, deposit):
-        # Notification message
         message = (
-            f"Your deposit of {deposit.amount_usd} USD with Transaction ID: "
-            f"{deposit.transaction_id} has been received and is currently pending. "
-            f"If status isn't updated in 30 minutes, please contact Support."
+            f"Your deposit of {deposit.amount_usd} USD to {deposit.network.name} network "
+            f"with Transaction ID: {deposit.transaction_id} has been initiated and is currently pending. "
+            f"Please send the inputed to the provided wallet address. "
+            f"If status isn't updated in 30 minutes after sending, please contact Support."
         )
-        Notification.objects.create(user=deposit.user, message=message)
+        notification = Notification.objects.create(user=deposit.user, message=message)
+        return notification
 
 
 class AdminUpdateDepositStatusAPIView(APIView):
@@ -277,28 +342,55 @@ class AdminUpdateDepositStatusAPIView(APIView):
 
         Notification.objects.create(user=deposit.user, message=message)
 
+
 class WithdrawalAPIView(APIView):
     serializer_class = WithdrawalSerializer
     second_serializer = MakeWithdrawalSerializer
 
-    def get(self, request):
-        withdrawals = Withdrawal.objects.filter(user=request.user)
+    def get(self, request, network_name=None):
+        if network_name:
+            network = get_object_or_404(Network, name=network_name)
+            withdrawals = Withdrawal.objects.filter(user=request.user, network=network)
+        else:
+            withdrawals = Withdrawal.objects.filter(user=request.user) 
+
         serializer = self.serializer_class(withdrawals, many=True)
         return Response(serializer.data)
 
-    def post(self, request):
-        serializer = self.second_serializer(data=request.data)
+    def post(self, request, network_name):
+        network = get_object_or_404(Network, name=network_name)
+        
+        data = request.data.copy()
+        data['network'] = network.id
+        
+        serializer = self.second_serializer(data=data)
         if serializer.is_valid():
-            withdrawal = serializer.save(user=request.user)
-            self.create_withdrawal_notification(withdrawal)
-            response_data = self.serializer_class(withdrawal).data
-            withdrawal_id = response_data.get('transaction_id')
+            withdrawal = serializer.save(
+                user=request.user,
+                network=network
+            )
+            notification = self.create_withdrawal_notification(withdrawal)
+            
+            response_data = {
+                'withdrawal': self.serializer_class(withdrawal).data,
+                'notification': {
+                    'id': notification.id,
+                    'message': notification.message,
+                    'created_at': notification.created_at
+                }
+            }
             return Response(response_data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def create_withdrawal_notification(self, withdrawal):
-        message = f"Your withdrawal request of {withdrawal.amount_usd} USD with Transaction ID: {withdrawal.transaction_id} has been received and is currently pending. If the status isn't updated within 24 hours, please contact Support via the chatbot on your screen."
-        Notification.objects.create(user=withdrawal.user, message=message)
+        message = (
+            f"Your withdrawal request of {withdrawal.amount_usd} USD on "
+            f"{withdrawal.network.name} network with Transaction ID: {withdrawal.transaction_id} "
+            f"has been received and is currently pending. If the status isn't updated within "
+            f"45 minutes, please contact Support via the chatbot on your screen."
+        )
+        notification = Notification.objects.create(user=withdrawal.user, message=message)
+        return notification
 
 class AdminWithdrawalConfirmationView(APIView):
     serializer_class = AdminWithdrawalSerializer
@@ -343,17 +435,15 @@ class InvestmentPlanAdminView(APIView):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-    def put(self, request, pk):
-        try:
-            plan = InvestmentPlan.objects.get(pk=pk)
-        except InvestmentPlan.DoesNotExist:
-            return Response({'error': 'Investment plan not found'}, status=status.HTTP_404_NOT_FOUND)
+    def put(self, request, investment_plan_name):
+        plan = get_object_or_404(InvestmentPlan, name=investment_plan_name)
         serializer = self.serializer_class(plan, data=request.data, partial=True)
 
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class InvestmentAPIView(APIView):
     serializer_class = InvestmentSerializer
@@ -365,39 +455,90 @@ class InvestmentAPIView(APIView):
         return Response(serializer.data)
 
     def post(self, request):
-        data = request.data
-        serializer = self.serializer_class(data=data)
+        serializer = self.serializer_class(data=request.data, context={'request': request})
+        
         if serializer.is_valid():
-            investment_plan = serializer.validated_data['investment_plan']
+            investment_plan_name = serializer.validated_data['investment_plan_name']
             amount = serializer.validated_data['amount']
+            network_name = serializer.validated_data['network_name']
 
-            # Validate amount against plan limits
-            if amount < investment_plan.minimum_amount or amount > investment_plan.maximum_amount:
+            try:
+                investment_plan = InvestmentPlan.objects.get(name=investment_plan_name)
+            except InvestmentPlan.DoesNotExist:
                 return Response({
-                    'error': f'Amount must be between {investment_plan.minimum_amount} and {investment_plan.maximum_amount}'
+                    'error': "Invalid investment plan."
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Calculate expected profit and return time
-            profit_rate = float(investment_plan.profit_percentage) / 100
-            expected_profit = amount * Decimal(profit_rate)
-            return_time = timezone.now() + timezone.timedelta(days=investment_plan.duration_days)
+            try:
+                with transaction.atomic():
+                    network = Network.objects.select_for_update().get(name__iexact=network_name)
+                    
+                    if amount < investment_plan.minimum_amount or amount > investment_plan.maximum_amount:
+                        return Response({
+                            'error': f'Amount must be between {investment_plan.minimum_amount} and {investment_plan.maximum_amount}'
+                        }, status=status.HTTP_400_BAD_REQUEST)
 
-            investment = serializer.save(user=request.user, expected_profit=expected_profit, return_time=return_time)
-            self.create_investment_notification(investment)
-            self.create_admin_notification(investment)
+                    if network.balance < amount:
+                        return Response({
+                            'error': 'Insufficient balance in network'
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    network.balance -= amount
+                    network.save()
 
-            return Response(self.serializer_class(investment).data, status=status.HTTP_201_CREATED)
+                    profit_rate = float(investment_plan.profit_percentage) / 100
+                    expected_profit = amount * Decimal(profit_rate)
+                    return_time = timezone.now() + timezone.timedelta(days=investment_plan.duration_days)
+
+                    investment = Investment.objects.create(
+                        user=request.user,
+                        investment_plan=investment_plan,
+                        network=network,
+                        amount=amount,
+                        expected_profit=expected_profit,
+                        return_time=return_time
+                    )
+
+                    user_notification = self.create_investment_notification(investment)
+                    admin_notifications = self.create_admin_notification(investment)
+
+                    response_data = self.serializer_class(investment).data
+                    response_data['notifications'] = {
+                        'user_notification': {
+                            'id': user_notification.id,
+                            'message': user_notification.message,
+                            'created_at': user_notification.created_at
+                        },
+                        'admin_notifications': [
+                            {
+                                'id': notification.id,
+                                'message': notification.message,
+                                'created_at': notification.created_at
+                            } for notification in admin_notifications
+                        ]
+                    }
+
+                    return Response(response_data, status=status.HTTP_201_CREATED)
+
+            except Network.DoesNotExist:
+                return Response({
+                    'error': "Invalid network selected."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def create_investment_notification(self, investment):
-        message = f"Your investment of ${investment.amount} in {investment.investment_plan.name} has been created and is pending approval."
-        Notification.objects.create(user=investment.user, message=message)
+        message = f"Your investment of ${investment.amount} in {investment.investment_plan.name} has been created and is pending approval. if your investment hasn't been approved in 30 minutes, reach out to support in the chatbox."
+        return Notification.objects.create(user=investment.user, message=message)
 
     def create_admin_notification(self, investment):
         admins = CustomUser.objects.filter(is_staff=True)
         message = f"New investment of ${investment.amount} by {investment.user.email_address} needs approval."
+        notifications = []
         for admin in admins:
-            Notification.objects.create(user=admin, message=message)
+            notifications.append(Notification.objects.create(user=admin, message=message))
+        return notifications
+
 
 class InvestmentAdminView(APIView):
     permission_classes = [IsAdminUser]
@@ -414,29 +555,63 @@ class InvestmentAdminView(APIView):
         except Investment.DoesNotExist:
             return Response({'error': 'Investment not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = self.serializer_class(investment, data=request.data, partial=True)
+        # Create a mutable copy of request.data
+        data = request.data.copy()
+
+        # Handle network update
+        if 'network_name' in data:
+            try:
+                network = Network.objects.get(name__iexact=data['network_name'])
+                investment.network = network
+                investment.save()
+            except Network.DoesNotExist:
+                return Response({'error': 'Invalid network name'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Handle status update explicitly
+        if 'status' in data:
+            investment.status = data['status']
+            investment.save()
+            notification = self.create_status_notification(investment)
+
+        serializer = self.serializer_class(investment, data=data, partial=True)
         if serializer.is_valid():
             updated_investment = serializer.save()
-            self.create_status_notification(updated_investment)
-            return Response(self.serializer_class(updated_investment).data)
+            response_data = self.serializer_class(updated_investment).data
+            
+            # Include notification in response if status was updated
+            if 'status' in data and notification:
+                response_data['notification'] = {
+                    'id': notification.id,
+                    'message': notification.message,
+                    'created_at': notification.created_at
+                }
+            
+            return Response(response_data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def create_status_notification(self, investment):
-        if investment.status == 'active':
-            message = f"Your investment of ${investment.amount} in {investment.investment_plan.name} has been confirmed and is now active."
-        elif investment.status == 'completed': 
-            message = f"Your investment of ${investment.amount} in {investment.investment_plan.name} has been completed successfully."
-        elif investment.status == 'failed':
-            message = f"Your investment of ${investment.amount} in {investment.investment_plan.name} has been completed successfully."
-        elif investment.status == 'cancelled':
-            message = f"Your investment of ${investment.amount} in {investment.investment_plan.name} has been cancelled."
-        Notification.objects.create(user=investment.user, message=message)
-    
+        status_messages = {
+            'active': f"Your investment of ${investment.amount} in {investment.investment_plan.name} on {investment.network.name} network has been confirmed and is now active.",
+            'completed': f"Your investment of ${investment.amount} in {investment.investment_plan.name} on {investment.network.name} network has been completed successfully.",
+            'failed': f"Your investment of ${investment.amount} in {investment.investment_plan.name} on {investment.network.name} network has failed.",
+            'cancelled': f"Your investment of ${investment.amount} in {investment.investment_plan.name} on {investment.network.name} network has been cancelled."
+        }
+
+        message = status_messages.get(investment.status, "Your investment status has been updated.")
+        return Notification.objects.create(user=investment.user, message=message)
+
 class NotificationAPIView(APIView):
     serializer_class = NotificationSerializer
-    def get(self, request):
-        notifications = Notification.objects.filter(user=request.user)
-        serializer = self.serializer_class(notifications, many=True)
+
+    def get(self, request, notification_id=None):
+        if notification_id:
+            notification = get_object_or_404(Notification, id=notification_id, user=request.user)
+            serializer = self.serializer_class(notification)
+        else:
+            # Get all notifications
+            notifications = Notification.objects.filter(user=request.user)
+            serializer = self.serializer_class(notifications, many=True)
+        
         return Response(serializer.data)
 
     def put(self, request, notification_id):
@@ -512,105 +687,111 @@ class ExchangeRatesAPIView(APIView):
 
         if not exchange_rates:
             # Make a request to CoinGecko API
-            coingecko_url = "https://api.coingecko.com/api/v3/exchange_rates"
-            response = requests.get(coingecko_url)
+            coingecko_url = "https://api.coingecko.com/api/v3/simple/price"
+            params = {
+                'ids': 'bitcoin',  # You might need to map network names to CoinGecko IDs
+                'vs_currencies': 'usd'
+            }
+            response = requests.get(coingecko_url, params=params)
 
             if response.status_code != 200:
                 return Response({"error": "Failed to fetch exchange rates."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            exchange_rates = response.json()['rates']
-
+            exchange_rates = response.json()
+            
             # Cache the results for 5 minutes
             cache.set(cache_key, exchange_rates, 300)
 
-        if crypto_symbol not in exchange_rates:
-            return Response({"error": "Exchange rate not available for this network."}, status=status.HTTP_400_BAD_REQUEST)
-
-        usd_rate = exchange_rates['usd']['value']
-        crypto_rate = exchange_rates[crypto_symbol]['value']
+        # Get BTC price in USD
+        btc_price_usd = exchange_rates['bitcoin']['usd']
         
-        # Calculate the exchange rate (crypto per USD)
-        exchange_rate = usd_rate / crypto_rate
-
-        # Calculate the amount in crypto
-        amount_crypto = amount_usd * exchange_rate
+        # Calculate amount in BTC
+        amount_crypto = amount_usd / btc_price_usd
 
         return Response({
             "amount_usd": amount_usd,
             "amount_crypto": amount_crypto,
             "network": network,
-            "exchange_rate": exchange_rate
+            "exchange_rate": 1/btc_price_usd  # USD to BTC rate
         }, status=status.HTTP_200_OK)
 
 
-class UpdateNetworkBalanceAPIView(APIView):
-
-    def get(self, request):
-        network_id = request.query_params.get('network_id')
-        transaction_id = request.query_params.get('transaction_id')
-
-        if network_id:
+class NetworkBalanceView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    def get(self, request, network_name=None):
+        if network_name is None:
+            # Fetch all network balances
+            networks = Network.objects.all()
+            network_balances = {
+                network.name: {
+                    'balance': network.balance,
+                    'network_name': network.name
+                } for network in networks
+            }
+            total_balance = networks.aggregate(total=Sum('balance'))['total']
+            
+            return Response({
+                'network_balances': network_balances,
+                'total_balance': total_balance
+            })
+        else:
+            # Fetch specific network balance
             try:
-                network = Network.objects.get(id=network_id)
-                return Response({'network': network.name, 'balance': network.balance}, status=status.HTTP_200_OK)
+                network = Network.objects.get(name=network_name)
+                return Response({
+                    'network': network.name,
+                    'balance': network.balance
+                })
             except Network.DoesNotExist:
-                return Response({'error': 'Network not found'}, status=status.HTTP_404_NOT_FOUND)
-        elif transaction_id:
+                return Response({
+                    'error': 'Network not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+
+class UpdateTransactionStatusView(APIView):
+    def post(self, request):
+        transaction_id = request.data.get('transaction_id')
+        new_status = request.data.get('status')
+
+        try:
             deposit = Deposit.objects.filter(transaction_id=transaction_id).first()
             withdrawal = Withdrawal.objects.filter(transaction_id=transaction_id).first()
-            
+
             if deposit:
-                return Response({'network': deposit.network.name, 'balance': deposit.network.balance}, status=status.HTTP_200_OK)
+                old_status = deposit.status
+                deposit.status = new_status
+                deposit.save()
             elif withdrawal:
-                return Response({'network': withdrawal.network.name, 'balance': withdrawal.network.balance}, status=status.HTTP_200_OK)
+                old_status = withdrawal.status
+                withdrawal.status = new_status
+                withdrawal.save()
             else:
-                return Response({'error': 'Transaction not found'}, status=status.HTTP_404_NOT_FOUND)
-        else:
+                return Response({
+                    'error': 'Transaction not found'
+                }, status=status.HTTP_404_NOT_FOUND)
+
+            # Fetch updated balances
             networks = Network.objects.all()
-            balances = [{'network': network.name, 'balance': network.balance} for network in networks]
-            return Response(balances, status=status.HTTP_200_OK)
-        
-    def post(self, request):
-        transaction_id = request.data.get('transaction_id')  
-        if not transaction_id:
-            return Response({'error': 'Transaction ID is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        # Try to find the transaction in both Deposit and Withdrawal models
-        deposit = Deposit.objects.filter(transaction_id=transaction_id, status='completed').first()
-        withdrawal = Withdrawal.objects.filter(transaction_id=transaction_id, status='completed').first()
+            network_balances = {
+                network.name: {
+                    'balance': network.balance,
+                    'network_name': network.name
+                } for network in networks
+            }
+            total_balance = networks.aggregate(total=Sum('balance'))['total']
 
-        if deposit:
-            return self.handle_deposit(deposit)
-        elif withdrawal:
-            return self.handle_withdrawal(withdrawal)
-        else:
-            return Response({'error': 'Completed transaction not found'}, status=status.HTTP_404_NOT_FOUND)
+            return Response({
+                'message': f'Transaction status updated from {old_status} to {new_status} successfully',
+                'transaction_id': str(transaction_id),
+                'status': new_status,
+                'network_balances': network_balances,
+                'total_balance': total_balance
+            })
 
-    def handle_deposit(self, deposit):
-        try:
-            self.update_network_balance(deposit.network, deposit.amount_usd, is_deposit=True)
-            return Response({'message': 'Network balance updated successfully for deposit'}, status=status.HTTP_200_OK)
         except ValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-    def handle_withdrawal(self, withdrawal):
-        try:
-            self.update_network_balance(withdrawal.network, withdrawal.amount_usd, is_deposit=False)
-            return Response({'message': 'Network balance updated successfully for withdrawal'}, status=status.HTTP_200_OK)
-        except ValidationError as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-
-    def update_network_balance(self, network, amount, is_deposit):
-        if amount is None or amount <= 0:
-            raise ValidationError("Invalid transaction amount")
-        if is_deposit:
-            network.balance += amount
-        else:
-            if network.balance < amount:
-                raise ValidationError("Insufficient network balance for this withdrawal")
-            network.balance -= amount
-        network.save()
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
 
 class TotalBalanceView(APIView):
     def get(self, request):
@@ -720,3 +901,116 @@ class UserReferralDetailsView(APIView):
                 {'error': f'An error occurred: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        
+        
+class AdminDashboardUsersDetail(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        # Get all users
+        users = CustomUser.objects.all()
+
+        # Calculate total network balance directly
+        total_network_balance = self.get_total_user_balance()
+
+        # Prepare the response data
+        data = {
+            'total_network_balance': total_network_balance,
+            'users': users
+        }
+
+        # Serialize the data
+        serializer = AdminDashboardSerializer(instance=data)  # Use instance instead of data
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def get_total_user_balance(self):
+        return Investment.objects.filter(status='completed').aggregate(
+            total=Sum('amount') + Sum('expected_profit')
+        )['total'] or 0
+    
+class AdminTransactionsHistory(APIView):
+    permission_classes = [IsAdminUser]
+
+    def get(self, request):
+        # Get query parameters for filtering
+        user_id = request.query_params.get('user_id')
+        network_name = request.query_params.get('network')
+        status_filter = request.query_params.get('status')
+        method = request.query_params.get('method')
+
+        # Base querysets - get ALL transactions
+        deposits = Deposit.objects.all().select_related('user', 'network')
+        withdrawals = Withdrawal.objects.all().select_related('user', 'network')
+
+        # Apply filters
+        if user_id:
+            deposits = deposits.filter(user_id=user_id)
+            withdrawals = withdrawals.filter(user_id=user_id)
+
+        if network_name:
+            deposits = deposits.filter(network__name=network_name)
+            withdrawals = withdrawals.filter(network__name=network_name)
+
+        if status_filter:
+            deposits = deposits.filter(status=status_filter)
+            withdrawals = withdrawals.filter(status=status_filter)
+
+        # Handle method filter
+        if method:
+            if method.lower() == 'deposit':
+                transactions = list(deposits)
+            elif method.lower() == 'withdrawal':
+                transactions = list(withdrawals)
+            else:
+                return Response({"error": "Invalid method. Use 'deposit' or 'withdrawal'"}, status=400)
+        else:
+            # Combine deposits and withdrawals
+            transactions = sorted(
+                chain(deposits, withdrawals),
+                key=lambda x: x.date,
+                reverse=True
+            )
+
+        serializer = AdminTransactionHistorySerializer(transactions, many=True)
+
+        return Response({
+            'total_count': len(serializer.data),
+            'transactions': serializer.data
+        })
+    
+
+class AdminInvestmentEditView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def put(self, request, investment_id):
+        try:
+            investment = Investment.objects.get(id=investment_id)
+        except Investment.DoesNotExist:
+            return Response({"error": "Investment not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = AdminInvestmentSerializer(investment, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class AdminTransactionEditView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def put(self, request, transaction_type, transaction_id):
+        if transaction_type not in ['deposit', 'withdrawal']:
+            return Response({"error": "Invalid transaction type"}, status=status.HTTP_400_BAD_REQUEST)
+
+        Model = Deposit if transaction_type == 'deposit' else Withdrawal
+        Serializer = AdminDepositSerializer if transaction_type == 'deposit' else AdminWithdrawalSerializer
+
+        try:
+            transaction = Model.objects.get(id=transaction_id)
+        except Model.DoesNotExist:
+            return Response({"error": f"{transaction_type.capitalize()} not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = Serializer(transaction, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
