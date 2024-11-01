@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, TotalBalanceView
+from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, UserCountView, AdminNetworkBalanceView, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, TotalBalanceView
 
 
 urlpatterns = [
@@ -44,6 +44,8 @@ urlpatterns = [
     path('user-kyc-status/', UserKYCStatusView.as_view(), name='user-kyc-status'),
     path('admin/kyc-list/', AdminKYCListView.as_view(), name='admin-kyc-list'),
     path('admin/kyc-update/<int:kyc_id>/', AdminKYCUpdateView.as_view(), name='admin-kyc-update'),
+    path('admin/users-count/', UserCountView.as_view(), name='user-count'),
+    path('admin/network-balances/', AdminNetworkBalanceView.as_view(), name='admin-network-balances'),
 ]
 
 

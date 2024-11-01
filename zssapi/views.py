@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError
 from django.db.models import Sum
 from django.db import transaction
 from django.utils import timezone
+from datetime import timedelta
 from django.shortcuts import get_object_or_404
 from itertools import chain
 from rest_framework.views import APIView
@@ -1080,4 +1081,79 @@ class AdminKYCUpdateView(APIView):
         except Exception as e:
             return Response({
                 'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+
+class UserCountView(APIView):
+    def get(self, request):
+        try:
+            # Try to get from cache first
+            cache_key = 'user_statistics'
+            cached_data = cache.get(cache_key)
+            
+            if cached_data:
+                return Response(cached_data, status=status.HTTP_200_OK)
+
+            # If not in cache, calculate and cache for 5 minutes
+            total_users = CustomUser.objects.count()
+            last_24_hours = timezone.now() - timedelta(hours=24)
+            active_users_24h = CustomUser.objects.filter(
+                last_login__gte=last_24_hours
+            ).count()
+
+            response_data = {
+                'status': 'success',
+                'data': {
+                    'total_users': total_users,
+                    'active_users_24h': active_users_24h,
+                },
+                'message': 'User statistics retrieved successfully'
+            }
+            
+            # Cache for 5 minutes
+            cache.set(cache_key, response_data, 300)
+            
+            return Response(response_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class AdminNetworkBalanceView(APIView):
+    permission_classes = [permissions.IsAdminUser] 
+    
+    def get(self, request):
+        try:
+            # Get all networks
+            networks = Network.objects.all()
+            
+            # Initialize response data
+            network_statistics = {}
+            
+            for network in networks:
+                network_statistics[network.name] = {
+                    'network_name': network.name,
+                    'balance': network.balance,  # Balance in network model
+                    'symbol': network.symbol,
+                }
+            
+            # Calculate total balance
+            total_balance = sum(net['balance'] for net in network_statistics.values())
+            
+            return Response({
+                'status': 'success',
+                'data': {
+                    'network_statistics': network_statistics,
+                    'total_balance': total_balance
+                },
+                'message': 'Network statistics retrieved successfully'
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
