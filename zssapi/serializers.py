@@ -85,8 +85,9 @@ class NetworkSerializer(ModelSerializer):
 class DepositSerializer(ModelSerializer):
     class Meta:
         model = Deposit
-        fields = ['id', 'transaction_id', 'user', 'network', 'amount_usd', 'amount_crypto', 'status', 'date']
-        read_only_fields = ['id', 'transaction_id', 'user', 'date', 'status']
+        fields = ['id', 'transaction_id', 'user', 'network', 'amount_usd', 'amount_crypto', 'status', 'created_at', 'updated_at']  # Removed 'date'
+        read_only_fields = ['id', 'transaction_id', 'user', 'created_at', 'updated_at', 'status']
+
 
 class MakeDepositSerializer(ModelSerializer):
     class Meta:
@@ -115,8 +116,8 @@ class WithdrawalSerializer(ModelSerializer):
 
     class Meta:
         model = Withdrawal
-        fields = ['id', 'transaction_id', 'user', 'network', 'amount_usd', 'amount_crypto', 'wallet_address', 'status', 'date']
-        read_only_fields = ['id', 'transaction_id', 'user', 'date', 'status']
+        fields = ['id', 'transaction_id', 'user', 'network', 'amount_usd', 'amount_crypto', 'wallet_address', 'status', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'transaction_id', 'user', 'created_at', 'updated_at',  'status']
 
 
 class MakeWithdrawalSerializer(ModelSerializer):
@@ -251,15 +252,15 @@ class UserKYCStatusSerializer(ModelSerializer):
         
 
 class KYCAdminSerializer(ModelSerializer):
-    user_email = EmailField(source='user.email_address')
+    email = EmailField(source='user.email_address')
     user_full_name = SerializerMethodField()
 
     class Meta:
         model = KYC
-        fields = ['id', 'user_email', 'user_full_name', 'document', 'status', 'uploaded_at']
+        fields = ['id', 'email', 'user_full_name', 'document', 'status', 'uploaded_at']
 
     def get_user_full_name(self, obj):
-        return f"{obj.user.first_name} {obj.user.last_name}"
+        return obj.user.full_name
 
 class KYCStatusUpdateSerializer(ModelSerializer):
     class Meta:

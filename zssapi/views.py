@@ -208,7 +208,7 @@ class UserProfile(APIView):
             return Response({"data":"ok"},status=status.HTTP_200_OK)
 
         return Response(serializer.errors,status=status.HTTP_400_BAD_REQUEST)
-    
+
 
 class Networks(APIView):
     serializer_class = NetworkSerializer
@@ -217,7 +217,8 @@ class Networks(APIView):
     def get(self, request, network_name=None):
         if network_name:
             try:
-                network = Network.objects.get(name=network_name)
+                # Case-insensitive lookup for retrieving the network
+                network = Network.objects.get(name__iexact=network_name)
                 serializer = self.serializer_class(network)
                 return Response(serializer.data)
             except Network.DoesNotExist:
@@ -229,6 +230,17 @@ class Networks(APIView):
         return Response(serializer.data)
     
     def post(self, request):
+        # Get the network name from the request
+        network_name = request.data.get('name')
+        
+        # Check if a network with the same name (case-insensitive) already exists
+        if Network.objects.filter(name__iexact=network_name).exists():
+            return Response(
+                {'error': 'A network with this name already exists'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create the new network
         serializer = self.serializer_class(data=request.data)
         if serializer.is_valid():
             serializer.save()
@@ -241,7 +253,8 @@ class Networks(APIView):
 
     def patch(self, request, network_name):
         try:
-            network = Network.objects.get(name=network_name)
+            # Case-insensitive lookup for updating the network
+            network = Network.objects.get(name__iexact=network_name)
             wallet_address = request.data.get('wallet_address')
             
             if not wallet_address:
@@ -253,7 +266,24 @@ class Networks(APIView):
 
             serializer = self.serializer_class(network)
             return Response({
-                'message': f'Wallet address updated successfully for {network_name}', 'network': serializer.data})
+                'message': f'Wallet address updated successfully for {network_name}', 
+                'network': serializer.data
+            })
+
+        except Network.DoesNotExist:
+            return Response(
+                {'error': 'Network not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, network_name):
+        try:
+            # Case-insensitive lookup for deleting the network
+            network = Network.objects.get(name__iexact=network_name)
+            network.delete()
+            return Response({
+                'message': f'Network {network_name} deleted successfully.'
+            }, status=status.HTTP_204_NO_CONTENT)
 
         except Network.DoesNotExist:
             return Response(
