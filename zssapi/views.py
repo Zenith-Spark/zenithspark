@@ -778,6 +778,8 @@ class NetworkBalanceView(APIView):
                     'error': 'Network not found'
                 }, status=status.HTTP_404_NOT_FOUND)
 
+
+
 class UpdateTransactionStatusView(APIView):
     def post(self, request):
         transaction_id = request.data.get('transaction_id')
@@ -791,14 +793,31 @@ class UpdateTransactionStatusView(APIView):
                 old_status = deposit.status
                 deposit.status = new_status
                 deposit.save()
+                user = deposit.user  # Get user object
             elif withdrawal:
                 old_status = withdrawal.status
                 withdrawal.status = new_status
                 withdrawal.save()
+                user = withdrawal.user  # Get user object
             else:
                 return Response({
                     'error': 'Transaction not found'
                 }, status=status.HTTP_404_NOT_FOUND)
+
+            # Create notification for the user
+            user_notification = Notification.objects.create(
+                user=user,
+                message=f'Your transaction with ID {transaction_id} has been updated from {old_status} to {new_status}.'
+            )
+
+            # Create notification for admin
+            admin_notification_message = f'Transaction with ID {transaction_id} has been updated from {old_status} to {new_status}.'
+            admin_users = CustomUser.objects.filter(is_superuser=True)  # Assuming admin users are superusers
+            for admin in admin_users:
+                Notification.objects.create(
+                    user=admin,
+                    message=admin_notification_message
+                )
 
             # Fetch updated balances
             networks = Network.objects.all()
@@ -810,12 +829,22 @@ class UpdateTransactionStatusView(APIView):
             }
             total_balance = networks.aggregate(total=Sum('balance'))['total']
 
+            # Fetch only the notifications related to this transaction update
+            user_notifications = Notification.objects.filter(user=user, message__icontains=str(transaction_id)).order_by('-created_at')
+            admin_notifications = Notification.objects.filter(user__is_superuser=True, message__icontains=str(transaction_id)).order_by('-created_at')
+
+            # Serialize notifications as needed
+            user_notifications_data = [{"message": n.message, "created_at": n.created_at} for n in user_notifications]
+            admin_notifications_data = [{"message": n.message, "created_at": n.created_at} for n in admin_notifications]
+
             return Response({
                 'message': f'Transaction status updated from {old_status} to {new_status} successfully',
                 'transaction_id': str(transaction_id),
                 'status': new_status,
                 'network_balances': network_balances,
-                'total_balance': total_balance
+                'total_balance': total_balance,
+                'user_notifications': user_notifications_data,
+                'admin_notifications': admin_notifications_data,
             })
 
         except ValidationError as e:
@@ -998,7 +1027,7 @@ class AdminTransactionsHistory(APIView):
             # Combine deposits and withdrawals
             transactions = sorted(
                 chain(deposits, withdrawals),
-                key=lambda x: x.date,
+                key=lambda x: x.created_at,
                 reverse=True
             )
 

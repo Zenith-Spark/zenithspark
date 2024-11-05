@@ -50,9 +50,3 @@ urlpatterns = [
 
 
 
-    # GET /api/v1/get-plans/ - List all active investment plans
-    # POST /api/v1/create-plans/ - Create new investment plan (admin only)
-    # PUT /api/v1/update-plans/<pk>/ - Update existing investment plan (admin only)
-    # GET, POST /api/investments/ - List user's investments or create new investment
-    # GET /api/admin/get-investments/ - List all investments (admin only)
-    # PUT /api/admin/investments/<pk>/update/ - Update investment status (admin only)
