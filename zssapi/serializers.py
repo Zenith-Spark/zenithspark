@@ -209,7 +209,7 @@ class AdminTransactionHistorySerializer(serializers.Serializer):
     amount = serializers.DecimalField(source='amount_usd', max_digits=10, decimal_places=2)
     network = serializers.CharField(source='network.name')
     method = serializers.SerializerMethodField()
-    date = serializers.DateTimeField()
+    created_at = serializers.DateTimeField()
     status = serializers.CharField()
 
     def get_method(self, obj):
