@@ -231,6 +231,14 @@ class AdminDepositSerializer(ModelSerializer):
         model = Deposit
         fields = '__all__'
 
+class AdminWithdrawalEditSerializer(ModelSerializer):
+    created_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S", input_formats=["%Y-%m-%d %H:%M:%S"])
+    updated_at = serializers.DateTimeField(format="%Y-%m-%d %H:%M:%S", input_formats=["%Y-%m-%d %H:%M:%S"])
+
+    class Meta:
+        model = Withdrawal
+        fields = '__all__'
+
 
 class KYCUploadSerializer(ModelSerializer):
     class Meta:

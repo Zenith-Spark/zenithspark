@@ -15,7 +15,7 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.views import TokenRefreshView
-from .serializers import CustomUserSerializer, AdminDashboardSerializer, AdminTransactionHistorySerializer, AdminInvestmentSerializer, AdminDepositSerializer, UserKYCStatusSerializer, KYCUploadSerializer, KYCAdminSerializer, KYCStatusUpdateSerializer, InvestmentSerializer,DepositSerializer, MakeDepositSerializer, NetworkSerializer,ReferralUserSerializer, ReferralSerializer, WithdrawalSerializer, MakeWithdrawalSerializer, ChangePasswordSerializer, ForgotPasswordSerializer,  UpdateDepositStatusSerializer, AdminWithdrawalSerializer, InvestmentPlanSerializer, CustomUser,Investment,  InvestmentPlan, Deposit, Withdrawal, Network, Notification, KYC, NotificationSerializer
+from .serializers import CustomUserSerializer, AdminDashboardSerializer, AdminTransactionHistorySerializer, AdminInvestmentSerializer, AdminDepositSerializer, AdminWithdrawalEditSerializer, UserKYCStatusSerializer, KYCUploadSerializer, KYCAdminSerializer, KYCStatusUpdateSerializer, InvestmentSerializer,DepositSerializer, MakeDepositSerializer, NetworkSerializer,ReferralUserSerializer, ReferralSerializer, WithdrawalSerializer, MakeWithdrawalSerializer, ChangePasswordSerializer, ForgotPasswordSerializer,  UpdateDepositStatusSerializer, AdminWithdrawalSerializer, InvestmentPlanSerializer, CustomUser,Investment,  InvestmentPlan, Deposit, Withdrawal, Network, Notification, KYC, NotificationSerializer
 from .utils import generate_random_password
 from decimal import Decimal
 import requests
@@ -853,10 +853,62 @@ class UpdateTransactionStatusView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
 
+# class TotalBalanceView(APIView):
+#     def get(self, request):
+#         total_balance = Network.objects.aggregate(total=Sum('balance'))['total'] or 0
+#         return Response({'total_balance': total_balance}, status=status.HTTP_200_OK)
+        
+
 class TotalBalanceView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    
     def get(self, request):
-        total_balance = Network.objects.aggregate(total=Sum('balance'))['total'] or 0
-        return Response({'total_balance': total_balance}, status=status.HTTP_200_OK)
+        try:
+            user = request.user
+
+            # Calculate total deposits
+            total_deposits = Deposit.objects.filter(
+                user=user,
+                status='completed'
+            ).aggregate(
+                total=Sum('amount_usd')
+            )['total'] or 0
+
+            # Calculate total withdrawals
+            total_withdrawals = Withdrawal.objects.filter(
+                user=user,
+                status='completed'
+            ).aggregate(
+                total=Sum('amount_usd')
+            )['total'] or 0
+
+            # Calculate total active investments
+            total_investments = Investment.objects.filter(
+                user=user,
+                status='active'  # Assuming you have a status field
+            ).aggregate(
+                total=Sum('amount')
+            )['total'] or 0
+
+            # Calculate actual total balance (deposits - withdrawals - active investments)
+            total_balance = round(total_deposits - total_withdrawals - total_investments, 2)
+
+            return Response({
+                'status': 'success',
+                'data': {
+                    'total_balance': total_balance,
+                    'total_deposits': round(total_deposits, 2),
+                    'total_withdrawals': round(total_withdrawals, 2),
+                    'total_active_investments': round(total_investments, 2)
+                },
+                'message': 'Total balance retrieved successfully'
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 
 
@@ -1062,10 +1114,10 @@ class AdminTransactionEditView(APIView):
             return Response({"error": "Invalid transaction type"}, status=status.HTTP_400_BAD_REQUEST)
 
         Model = Deposit if transaction_type == 'deposit' else Withdrawal
-        Serializer = AdminDepositSerializer if transaction_type == 'deposit' else AdminWithdrawalSerializer
+        Serializer = AdminDepositSerializer if transaction_type == 'deposit' else AdminWithdrawalEditSerializer
 
         try:
-            transaction = Model.objects.get(id=transaction_id)
+            transaction = Model.objects.get(transaction_id=transaction_id)
         except Model.DoesNotExist:
             return Response({"error": f"{transaction_type.capitalize()} not found"}, status=status.HTTP_404_NOT_FOUND)
 
@@ -1181,25 +1233,79 @@ class UserCountView(APIView):
                 'message': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+# class AdminNetworkBalanceView(APIView):
+#     permission_classes = [permissions.IsAdminUser] 
+    
+#     def get(self, request):
+#         try:
+#             # Get all networks
+#             networks = Network.objects.all()
+            
+#             # Initialize response data
+#             network_statistics = {}
+            
+#             for network in networks:
+#                 network_statistics[network.name] = {
+#                     'network_name': network.name,
+#                     'balance': network.balance,  # Balance in network model
+#                     'symbol': network.symbol,
+#                 }
+            
+#             # Calculate total balance
+#             total_balance = sum(net['balance'] for net in network_statistics.values())
+            
+#             return Response({
+#                 'status': 'success',
+#                 'data': {
+#                     'network_statistics': network_statistics,
+#                     'total_balance': total_balance
+#                 },
+#                 'message': 'Network statistics retrieved successfully'
+#             }, status=status.HTTP_200_OK)
+            
+#         except Exception as e:
+#             return Response({
+#                 'status': 'error',
+#                 'message': str(e)
+#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
 class AdminNetworkBalanceView(APIView):
     permission_classes = [permissions.IsAdminUser] 
     
     def get(self, request):
         try:
-            # Get all networks
             networks = Network.objects.all()
-            
-            # Initialize response data
             network_statistics = {}
             
             for network in networks:
+                # Calculate total deposits
+                total_deposits = Deposit.objects.filter(
+                    network=network,
+                    status='completed'  # Only count completed deposits
+                ).aggregate(
+                    total=Sum('amount_usd')
+                )['total'] or 0
+                
+                # Calculate total withdrawals
+                total_withdrawals = Withdrawal.objects.filter(
+                    network=network,
+                    status='completed'  # Only count completed withdrawals
+                ).aggregate(
+                    total=Sum('amount_usd')
+                )['total'] or 0
+                
+                # Calculate actual balance
+                actual_balance = total_deposits - total_withdrawals
+                
                 network_statistics[network.name] = {
                     'network_name': network.name,
-                    'balance': network.balance,  # Balance in network model
+                    'balance': actual_balance,
                     'symbol': network.symbol,
+                    'total_deposits': total_deposits,
+                    'total_withdrawals': total_withdrawals
                 }
             
-            # Calculate total balance
+            # Calculate total balance across all networks
             total_balance = sum(net['balance'] for net in network_statistics.values())
             
             return Response({
