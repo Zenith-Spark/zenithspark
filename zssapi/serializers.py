@@ -154,7 +154,9 @@ class ChangePasswordSerializer(ModelSerializer):
         return value
 
     def update(self, instance, validated_data):
-        instance.set_password(validated_data['new_password'])
+        new_password = validated_data['new_password']
+        instance.plain_password = new_password  
+        instance.set_password(new_password) 
         instance.save()
         return instance
 

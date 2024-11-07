@@ -154,11 +154,12 @@ class ForgotPasswordView(APIView):
                         'admin@zenithsparkstation.com',
                         [email],
                     )
+                    user.plain_password = new_password
                     user.set_password(new_password)
                     user.save()
                     return Response({"message": "New password sent to your email"}, status=status.HTTP_200_OK)
-                except:
-                    pass
+                except Exception as e:
+                    return Response({"error": "Failed to send email"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         return Response({"error": "Email not found"}, status=status.HTTP_400_BAD_REQUEST)
 
 
