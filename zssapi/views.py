@@ -1,8 +1,10 @@
 from django.contrib.auth import authenticate
 from django.core.mail import send_mail
+from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db.models import Sum
+from django.db.models import Sum, Q, Value, DecimalField
+from django.db.models.functions import Coalesce
 from django.db import transaction
 from django.utils import timezone
 from datetime import timedelta
@@ -151,7 +153,7 @@ class ForgotPasswordView(APIView):
                         'If you have any questions or concerns, please contact us at support@marapolsa.com.\n\n'
                         'Best regards,\n'
                         'The Zenith Spark Station Team',
-                        'admin@zenithsparkstation.com',
+                        settings.DEFAULT_FROM_EMAIL,
                         [email],
                     )
                     user.plain_password = new_password
@@ -475,6 +477,14 @@ class InvestmentPlanAdminView(APIView):
             serializer.save()
             return Response(serializer.data)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    def delete(self, request, investment_plan_name):
+        """Delete an investment plan"""
+        plan = get_object_or_404(InvestmentPlan, name=investment_plan_name)
+        plan.delete()
+        return Response({
+            "message": f"Investment plan {investment_plan_name} has been deleted"
+        }, status=status.HTTP_200_OK)
 
 
 class InvestmentAPIView(APIView):
@@ -1234,41 +1244,6 @@ class UserCountView(APIView):
                 'message': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# class AdminNetworkBalanceView(APIView):
-#     permission_classes = [permissions.IsAdminUser] 
-    
-#     def get(self, request):
-#         try:
-#             # Get all networks
-#             networks = Network.objects.all()
-            
-#             # Initialize response data
-#             network_statistics = {}
-            
-#             for network in networks:
-#                 network_statistics[network.name] = {
-#                     'network_name': network.name,
-#                     'balance': network.balance,  # Balance in network model
-#                     'symbol': network.symbol,
-#                 }
-            
-#             # Calculate total balance
-#             total_balance = sum(net['balance'] for net in network_statistics.values())
-            
-#             return Response({
-#                 'status': 'success',
-#                 'data': {
-#                     'network_statistics': network_statistics,
-#                     'total_balance': total_balance
-#                 },
-#                 'message': 'Network statistics retrieved successfully'
-#             }, status=status.HTTP_200_OK)
-            
-#         except Exception as e:
-#             return Response({
-#                 'status': 'error',
-#                 'message': str(e)
-#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 class AdminNetworkBalanceView(APIView):
     permission_classes = [permissions.IsAdminUser] 
@@ -1318,6 +1293,173 @@ class AdminNetworkBalanceView(APIView):
                 'message': 'Network statistics retrieved successfully'
             }, status=status.HTTP_200_OK)
             
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'message': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+    
+class UserManagementView(APIView):
+    permission_classes = [IsAdminUser]
+
+    def send_account_status_email(self, user, action):
+        """
+        Send email notification about account status change
+        """
+        try:
+            if action == 'suspend':
+                subject = 'Your Account Has Been Suspended'
+                message = f"""
+                Dear {user.full_name},
+
+                We regret to inform you that your account on Zenith Spark Station has been suspended.
+
+                If you believe this is an error, please contact our support team.
+
+                Best regards,
+                Zenith Spark Station Support Team
+                """
+
+            elif action == 'activate':
+                subject = 'Your Account Has Been Reactivated'
+                message = f"""
+                Dear {user.full_name},
+
+                Your account on Zenith Spark Station has been reactivated.
+
+                You can now log in to your account.
+
+                Best regards,
+                Zenith Spark Station Support Team
+                """
+
+            elif action == 'delete':
+                subject = 'Your Account Has Been Terminated'
+                message = f"""
+                Dear {user.full_name},
+
+                Your account on Zenith Spark Station has been permanently deleted.
+
+                If you did not request this action, please contact our support team immediately.
+
+                Best regards,
+                Zenith Spark Station Support Team
+                """
+
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email_address],
+                fail_silently=False,
+            )
+        except Exception as e:
+            print(f"Failed to send email: {str(e)}")
+
+    def post(self, request, user_id, action):
+        """
+        Admin actions on user accounts
+        Supported actions: suspend, activate, delete
+        """
+        user = get_object_or_404(CustomUser, id=user_id)
+
+        if action == 'suspend':
+            user.is_active = False
+            user.save()
+
+            # Send suspension email
+            self.send_account_status_email(user, action)
+
+            return Response({
+                "message": f"User {user.email_address} has been suspended"
+            }, status=status.HTTP_200_OK)
+
+        elif action == 'activate':
+            user.is_active = True
+            user.save()
+
+            # Send reactivation email
+            self.send_account_status_email(user, action)
+
+            return Response({
+                "message": f"User {user.email_address} has been activated"
+            }, status=status.HTTP_200_OK)
+
+        elif action == 'delete':
+            # Send deletion email before deleting the user
+            self.send_account_status_email(user, action)
+
+            # Delete the user
+            user.delete()
+
+            return Response({
+                "message": f"User {user.email_address} has been permanently banned"
+            }, status=status.HTTP_200_OK)
+
+        return Response({
+            "error": "Invalid action"
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+
+
+    
+class AdminAllUserBalancesView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+    
+    def get(self, request):
+        try:
+            # Calculate total balances in a more efficient manner
+            user_balances = []
+            total_system_balance = 0
+            
+            for user in CustomUser.objects.all():
+                # Calculate total deposits
+                total_deposits = Deposit.objects.filter(
+                    user=user, 
+                    status='completed'
+                ).aggregate(
+                    total=Coalesce(Sum('amount_usd'), Value(0), output_field=DecimalField())
+                )['total']
+                
+                # Calculate total withdrawals
+                total_withdrawals = Withdrawal.objects.filter(
+                    user=user, 
+                    status='completed'
+                ).aggregate(
+                    total=Coalesce(Sum('amount_usd'), Value(0), output_field=DecimalField())
+                )['total']
+                
+                # Calculate total approved investments
+                total_approved_investment = Investment.objects.filter(
+                    user=user, 
+                    status='approved'
+                ).aggregate(
+                    total=Coalesce(Sum('amount'), Value(0), output_field=DecimalField())
+                )['total']
+                
+                # Calculate user balance
+                user_balance = total_deposits - total_withdrawals - total_approved_investment
+                
+                # Accumulate total system balance
+                total_system_balance += user_balance
+                
+                user_balances.append({
+                    'user_id': user.id,
+                    'email': user.email_address,
+                    'balance': float(user_balance)
+                })
+            
+            return Response({
+                'status': 'success',
+                'data': {
+                    'total_system_balance': float(total_system_balance),
+                    'user_balances': user_balances
+                },
+                'message': 'Total system balance calculated successfully'
+            }, status=status.HTTP_200_OK)
+        
         except Exception as e:
             return Response({
                 'status': 'error',

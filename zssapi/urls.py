@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, UserCountView, AdminNetworkBalanceView, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, TotalBalanceView
+from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, UserCountView, AdminNetworkBalanceView, AdminAllUserBalancesView, UserManagementView, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, TotalBalanceView
 
 
 urlpatterns = [
@@ -17,11 +17,13 @@ urlpatterns = [
     path('get-plans/', InvestmentPlanListView.as_view(), name='investment-plans'),
     path('admin/create-plans/', InvestmentPlanAdminView.as_view(), name='create-investment-plan'),
     path('admin/update-plans/<str:investment_plan_name>/', InvestmentPlanAdminView.as_view(), name='update-investment-plan'),
+    path('admin/delete-plans/<str:investment_plan_name>/', InvestmentPlanAdminView.as_view(), name='delete-investment-plan'),
     path('investments/', InvestmentAPIView.as_view(), name='investments'), 
     path('admin/get-investments/', InvestmentAdminView.as_view(), name='admin-investments'),
     path('admin/update-investments/<int:pk>/', InvestmentAdminView.as_view(), name='update-investment'),
     path('networks/', Networks.as_view(), name='networks'),
     path('networks/<str:network_name>/', Networks.as_view(), name='network-detail'),
+    path('delete-network/<str:network_name>/', Networks.as_view(), name='network-delete'),
     path('deposits/', DepositAPIView.as_view(), name='deposits'),
     path('deposits/<str:network_name>/', DepositAPIView.as_view(), name='deposits-network'),
     path('admin/deposits/<str:deposit_id>/', AdminUpdateDepositStatusAPIView.as_view(), name='admin-update-deposit'),
@@ -46,6 +48,9 @@ urlpatterns = [
     path('admin/kyc-update/<int:kyc_id>/', AdminKYCUpdateView.as_view(), name='admin-kyc-update'),
     path('admin/users-count/', UserCountView.as_view(), name='user-count'),
     path('admin/network-balances/', AdminNetworkBalanceView.as_view(), name='admin-network-balances'),
+    path('admin/all-users-balance/', AdminAllUserBalancesView.as_view(), name='admin-all-users-balance'),
+    path('admin/users/<int:user_id>/<str:action>/', UserManagementView.as_view(), name='admin-user-management'),
+
 ]
 
 
