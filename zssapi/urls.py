@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, UserCountView, AdminNetworkBalanceView, AdminAllUserBalancesView, UserManagementView, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, TotalBalanceView
+from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, UserCountView, AdminNetworkBalanceView, AdminAllUserBalancesView, UserManagementView, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, InvestmentRefundView, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, TotalBalanceView
 
 
 urlpatterns = [
@@ -41,6 +41,7 @@ urlpatterns = [
     path('admin/users-detail/', AdminDashboardUsersDetail.as_view(), name='admin-dashboard'),
     path('admin/history/', AdminTransactionsHistory.as_view(), name='admin-transactions'),
     path('admin/investment/<int:investment_id>/edit/', AdminInvestmentEditView.as_view(), name='admin-investment-edit'),
+    path('admin/refund-failed-investments/', InvestmentRefundView.as_view(), name='investment-refund'),
     path('admin/<str:transaction_type>/<str:transaction_id>/edit/', AdminTransactionEditView.as_view(), name='admin-transaction-edit'),
     path('upload-kyc/', KYCUploadView.as_view(), name='upload-kyc'),
     path('user-kyc-status/', UserKYCStatusView.as_view(), name='user-kyc-status'),

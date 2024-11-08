@@ -58,6 +58,69 @@ class UserRegistration(APIView):
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+# class LoginView(APIView):
+#     permission_classes = [permissions.AllowAny]
+
+#     def post(self, request):
+#         email_address = request.data.get('email_address')
+#         password = request.data.get('password')
+
+#         if not email_address or not password:
+#             return Response(
+#                 {"error": "Email and password are required"},
+#                 status=status.HTTP_400_BAD_REQUEST
+#             )
+
+#         # Authenticate the user with email and password
+#         user = authenticate(request, email_address=email_address, password=password)
+
+#         if user is not None:
+#             if user.is_active:
+#                 # Generate refresh and access tokens
+#                 refresh = RefreshToken.for_user(user)
+
+#                 # Update user's IP information and save
+#                 user.ip_address = self.get_client_ip(request)
+#                 user.last_login_ip = user.ip_address
+#                 user.save()
+
+#                 return Response({
+#                     "id": str(user.id),
+#                     "email_address": user.email_address,
+#                     "full_name": user.full_name,
+#                     "ip_address": user.ip_address,
+#                     "refresh": str(refresh),
+#                     "access": str(refresh.access_token)
+#                 }, status=status.HTTP_200_OK)
+#             else:
+#                 return Response(
+#                     {"error": "User account is disabled."},
+#                     status=status.HTTP_403_FORBIDDEN
+#                 )
+
+#         # Authentication failed
+#         return Response(
+#             {"error": "Invalid credentials"},
+#             status=status.HTTP_401_UNAUTHORIZED
+#         )
+
+#     def get_client_ip(self, request):
+#         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+#         if x_forwarded_for:
+#             ip = x_forwarded_for.split(',')[0]
+#         else:
+#             ip = request.META.get('REMOTE_ADDR')
+#         return ip
+    
+from rest_framework import permissions
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.contrib.auth import authenticate
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+from .models import CustomUser   # Adjust the import based on your project structure
+
 class LoginView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -71,38 +134,54 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Attempt to retrieve the user by email
+        try:
+            user = CustomUser .objects.get(email_address=email_address)
+        except CustomUser .DoesNotExist:
+            return Response(
+                {"error": "User  not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Check if the user is active (not suspended or deleted)
+        if not user.is_active:
+            # Revoke any existing tokens for the user
+            self.revoke_tokens(user)
+            return Response(
+                {"error": "Your account has been suspended. Please contact support."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         # Authenticate the user with email and password
-        user = authenticate(request, email_address=email_address, password=password)
+        if user.check_password(password):
+            # Generate refresh and access tokens
+            refresh = RefreshToken.for_user(user)
 
-        if user is not None:
-            if user.is_active:
-                # Generate refresh and access tokens
-                refresh = RefreshToken.for_user(user)
+            # Update user's IP information and save
+            user.ip_address = self.get_client_ip(request)
+            user.last_login_ip = user.ip_address
+            user.save()
 
-                # Update user's IP information and save
-                user.ip_address = self.get_client_ip(request)
-                user.last_login_ip = user.ip_address
-                user.save()
+            return Response({
+                "id": str(user.id),
+                "email_address": user.email_address,
+                "full_name": user.full_name,
+                "ip_address": user.ip_address,
+                "refresh": str(refresh),
+                "access": str(refresh.access_token)
+            }, status=status.HTTP_200_OK)
+        else:
+            # Authentication failed
+            return Response(
+                {"error": "Invalid credentials"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
-                return Response({
-                    "id": str(user.id),
-                    "email_address": user.email_address,
-                    "full_name": user.full_name,
-                    "ip_address": user.ip_address,
-                    "refresh": str(refresh),
-                    "access": str(refresh.access_token)
-                }, status=status.HTTP_200_OK)
-            else:
-                return Response(
-                    {"error": "User account is disabled."},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-
-        # Authentication failed
-        return Response(
-            {"error": "Invalid credentials"},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+    def revoke_tokens(self, user):
+        # Revoke all outstanding tokens for the user
+        outstanding_tokens = OutstandingToken.objects.filter(user=user)
+        for token in outstanding_tokens:
+            BlacklistedToken.objects.create(token=token)
 
     def get_client_ip(self, request):
         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
@@ -1465,3 +1544,71 @@ class AdminAllUserBalancesView(APIView):
                 'status': 'error',
                 'message': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+class InvestmentRefundView(APIView):
+    permission_classes = [IsAdminUser ]  # Ensure only admins can trigger refund
+
+    def post(self, request):
+        investment_id = request.data.get('investment_id')
+        
+        try:
+            # Fetch the investment
+            investment = Investment.objects.get(id=investment_id)
+            
+            # Check if investment is already failed
+            if investment.status == 'failed':
+                return Response({
+                    'status': 'error',
+                    'message': 'Investment is already marked as failed'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Initiate refund process
+            refund_result = self.refund_investment(investment)
+            
+            if refund_result:
+                return Response({
+                    'status': 'success',
+                    'message': 'Investment marked as failed and refunded successfully'
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    'status': 'error',
+                    'message': 'Failed to process refund'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        except Investment.DoesNotExist:
+            return Response({
+                'status': 'error',
+                'message': 'Investment not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+    def refund_investment(self, investment):
+        try:
+            with transaction.atomic():
+                # 1. Restore network balance
+                network = investment.network
+                network.balance += investment.amount
+                network.save()
+
+                # 2. Refund user's wallet
+                user = investment.user
+                user.wallet_balance += investment.amount
+                user.save()
+
+                # 3. Update investment status
+                investment.status = 'failed'
+                investment.save()
+
+                # 4. Create user notification
+                Notification.objects.create(
+                    user=user,
+                    message=f"Your investment of ${investment.amount} has been refunded due to investment failure.",
+                    type='INVESTMENT_REFUND'
+                )
+
+                return True
+
+        except Exception:
+            # Return False if any error occurs during the refund process
+            return False
