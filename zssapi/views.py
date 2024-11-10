@@ -1558,24 +1558,24 @@ class InvestmentRefundView(APIView):
             
             # Check if investment is already failed
             if investment.status == 'failed':
-                return Response({
-                    'status': 'error',
-                    'message': 'Investment is already marked as failed'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            # Initiate refund process
-            refund_result = self.refund_investment(investment)
-            
-            if refund_result:
-                return Response({
-                    'status': 'success',
-                    'message': 'Investment marked as failed and refunded successfully'
-                }, status=status.HTTP_200_OK)
+                # Initiate refund process
+                refund_result = self.refund_investment(investment)
+
+                if refund_result:
+                    return Response({
+                        'status': 'success',
+                        'message': 'Investment refunded successfully'
+                    }, status=status.HTTP_200_OK)
+                else:
+                    return Response({
+                        'status': 'error',
+                        'message': 'Failed to process refund'
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             else:
                 return Response({
                     'status': 'error',
-                    'message': 'Failed to process refund'
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                    'message': 'Investment is not marked as failed, refund cannot be processed'
+                }, status=status.HTTP_400_BAD_REQUEST)
 
         except Investment.DoesNotExist:
             return Response({
@@ -1596,11 +1596,7 @@ class InvestmentRefundView(APIView):
                 user.wallet_balance += investment.amount
                 user.save()
 
-                # 3. Update investment status
-                investment.status = 'failed'
-                investment.save()
-
-                # 4. Create user notification
+                # 3. Create user notification
                 Notification.objects.create(
                     user=user,
                     message=f"Your investment of ${investment.amount} has been refunded due to investment failure.",
@@ -1609,6 +1605,5 @@ class InvestmentRefundView(APIView):
 
                 return True
 
-        except Exception:
-            # Return False if any error occurs during the refund process
+        except Exception:    
             return False
