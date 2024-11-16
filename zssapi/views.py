@@ -3,7 +3,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.db.models import Sum, Q, Value, DecimalField
+from django.db.models import Sum, F, Q, Value, DecimalField
 from django.db.models.functions import Coalesce
 from django.db import transaction
 from django.utils import timezone
@@ -1544,7 +1544,7 @@ class AdminAllUserBalancesView(APIView):
                 'status': 'error',
                 'message': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+
 
 class InvestmentRefundView(APIView):
     permission_classes = [IsAdminUser ]  # Ensure only admins can trigger refund
@@ -1588,15 +1588,18 @@ class InvestmentRefundView(APIView):
             with transaction.atomic():
                 # 1. Restore network balance
                 network = investment.network
-                network.balance += investment.amount
-                network.save()
+                if network.balance is not None:
+                    network.balance = F('balance') + investment.amount
+                    network.save()
 
-                # 2. Refund user's wallet
+                # 2. Calculate user's current balance
                 user = investment.user
-                user.wallet_balance += investment.amount
-                user.save()
+                user_balance = self.calculate_user_balance(user)
 
-                # 3. Create user notification
+                # 3. Update user's balance by adding the investment amount
+                user_balance += investment.amount
+
+                # 4. Create user notification
                 Notification.objects.create(
                     user=user,
                     message=f"Your investment of ${investment.amount} has been refunded due to investment failure.",
@@ -1605,5 +1608,28 @@ class InvestmentRefundView(APIView):
 
                 return True
 
-        except Exception:    
+        except Exception as e:
+            # Optionally log the exception or handle it as needed
+            print(f"Error during refund: {e}")  # Log the error for debugging
             return False
+
+    def calculate_user_balance(self, user):
+        # Calculate total deposits
+        total_deposits = Deposit.objects.filter(user=user, status='completed').aggregate(
+            total=Sum('amount_usd')
+        )['total'] or 0
+
+        # Calculate total withdrawals
+        total_withdrawals = Withdrawal.objects.filter(user=user, status='completed').aggregate(
+            total=Sum('amount_usd')
+        )['total'] or 0
+
+        # Calculate total approved investments
+        total_approved_investments = Investment.objects.filter(user=user, status='approved').aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+
+        # Calculate user balance
+        user_balance = total_deposits - total_withdrawals - total_approved_investments
+
+        return user_balance
