@@ -288,7 +288,7 @@ class AdminFundUserNetworkSerializer(serializers.Serializer):
     amount_usd = serializers.DecimalField(max_digits=10, decimal_places=2)
     amount_crypto = serializers.DecimalField(max_digits=18, decimal_places=8, required=False, allow_null=True)
     transaction_type = serializers.ChoiceField(choices=['deposit', 'withdrawal'])
-    wallet_address = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    wallet_address = serializers.CharField(max_length=255, required=False, allow_blank=True, allow_null=True)
 
     def validate(self, data):
         # Validate user exists
@@ -303,8 +303,4 @@ class AdminFundUserNetworkSerializer(serializers.Serializer):
         except Network.DoesNotExist:
             raise serializers.ValidationError("Network does not exist")
 
-        # Conditional validation for withdrawal
-        if data['transaction_type'] == 'withdrawal':
-            if not data.get('wallet_address'):
-                raise serializers.ValidationError("Wallet address is required for withdrawals")
-        return data
+        
