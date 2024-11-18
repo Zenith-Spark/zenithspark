@@ -154,7 +154,7 @@ class LoginView(APIView):
         return ip
     
 class AdminLoginView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [permissions.AllowAny]
 
     def post(self, request):
         email_address = request.data.get('email_address')
@@ -2183,7 +2183,6 @@ class AdminFundUserNetworkView(APIView):
                 network=network,
                 amount_usd=amount_usd,
                 amount_crypto=amount_crypto,
-                wallet_address=wallet_address,
                 status='completed'
             )
             # Update network balance
