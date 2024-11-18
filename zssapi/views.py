@@ -839,9 +839,9 @@ class InvestmentAdminView(APIView):
         serializer = self.serializer_class(investments, many=True)
         return Response(serializer.data)
 
-    def put(self, request, pk):
+    def put(self, request, investment_id):
         try:
-            investment = Investment.objects.get(pk=pk)
+            investment = Investment.objects.get(id=investment_id)
         except Investment.DoesNotExist:
             return Response({'error': 'Investment not found'}, status=status.HTTP_404_NOT_FOUND)
 

@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistration, AdminLoginView, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, UserCountView, AdminNetworkBalanceView, AdminAllUserBalancesView, UserManagementView, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, InvestmentRefundView, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, UserTotalBalanceView
+from .views import UserRegistration, AdminLoginView, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, UserCountView, AdminNetworkBalanceView, AdminFundUserNetworkView, AdminAllUserBalancesView, UserManagementView, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, InvestmentRefundView, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, UserTotalBalanceView
 
 
 urlpatterns = [
@@ -52,7 +52,7 @@ urlpatterns = [
     path('admin/network-balances/', AdminNetworkBalanceView.as_view(), name='admin-network-balances'),
     path('admin/all-users-balance/', AdminAllUserBalancesView.as_view(), name='admin-all-users-balance'),
     path('admin/users/<int:user_id>/<str:action>/', UserManagementView.as_view(), name='admin-user-management'),
-
+    path('admin/fund-user/', AdminFundUserNetworkView.as_view(), name='admin-fund-user'),
 ]
 
 
