@@ -285,8 +285,8 @@ class KYCStatusUpdateSerializer(ModelSerializer):
 class AdminFundUserNetworkSerializer(serializers.Serializer):
     email_address = serializers.EmailField()
     network_name = serializers.CharField(max_length=100)
-    amount_usd = serializers.DecimalField(max_digits=10, decimal_places=2, min_value=0.01)
-    amount_crypto = serializers.DecimalField(max_digits=18, decimal_places=8, required=False, allow_null=True, min_value=0)
+    amount_usd = serializers.DecimalField(max_digits=10, decimal_places=2)
+    amount_crypto = serializers.DecimalField(max_digits=18, decimal_places=8, required=False, allow_null=True)
     transaction_type = serializers.ChoiceField(choices=['deposit', 'withdrawal'])
     wallet_address = serializers.CharField(max_length=255, required=False, allow_blank=True)
 
