@@ -2108,8 +2108,7 @@ class AdminFundUserNetworkView(APIView):
                     user, 
                     network, 
                     amount_usd, 
-                    amount_crypto,
-                    wallet_address
+                    amount_crypto
                 )
             else:
                 return Response(
