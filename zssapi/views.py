@@ -1956,49 +1956,46 @@ class AdminAllUserBalancesView(APIView):
                 'message': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        
+
 class InvestmentRefundView(APIView):
-    permission_classes = [IsAdminUser]
+    permission_classes = [permissions.IsAdminUser]
 
     def post(self, request):
         investment_id = request.data.get('investment_id')
-        
+
+        if not investment_id:
+            return Response({
+                'status': 'error',
+                'message': 'Investment ID is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         try:
-            # Fetch the investment
+            # Fetch the investment record
             investment = Investment.objects.get(id=investment_id)
-            
-            # Check if investment is already failed
-            if investment.status == 'failed':
-                # Initiate refund process
-                refund_result = self.refund_investment(investment)
 
-                if refund_result:
-                    # Update investment status to refunded
-                    investment.status = 'refunded'
-                    investment.save()
-
-                    # Create a notification similar to other status changes
-                    notification = self.create_refund_notification(investment)
-
-                    return Response({
-                        'status': 'refunded',
-                        'message': 'Investment refunded successfully',
-                        'notification': {
-                            'id': notification.id,
-                            'message': notification.message,
-                            'created_at': notification.created_at
-                        }
-                    }, status=status.HTTP_200_OK)
-                else:
-                    return Response({
-                        'status': 'error',
-                        'message': 'Failed to process refund'
-                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            else:
+            # Validate the investment status
+            if investment.status != 'failed':
                 return Response({
                     'status': 'error',
-                    'message': 'Investment is not marked as failed, refund cannot be processed'
+                    'message': 'Investment is not marked as failed; refund cannot be processed'
                 }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Process the refund
+            with transaction.atomic():
+                self.process_refund(investment)
+
+            # Notify the user
+            notification = self.create_refund_notification(investment)
+
+            return Response({
+                'status': 'success',
+                'message': 'Investment refunded successfully',
+                'notification': {
+                    'id': notification.id,
+                    'message': notification.message,
+                    'created_at': notification.created_at
+                }
+            }, status=status.HTTP_200_OK)
 
         except Investment.DoesNotExist:
             return Response({
@@ -2006,60 +2003,66 @@ class InvestmentRefundView(APIView):
                 'message': 'Investment not found'
             }, status=status.HTTP_404_NOT_FOUND)
 
-    def refund_investment(self, investment):
-        try:
-            with transaction.atomic():
-                # 1. Restore network balance
-                network = investment.network
-                if network.balance is not None:
-                    network.balance = F('balance') + investment.amount
-                    network.save()
-
-                # 2. Create a deposit for the refunded amount
-                deposit = Deposit.objects.create(
-                    user=investment.user,
-                    network=network,
-                    amount_usd=investment.amount,
-                    status='completed',
-                    description=f'Refund for failed investment {investment.id}'
-                )
-
-                return True
-
         except Exception as e:
-            # Print the error for debugging
-            print(f"Error during investment refund: {e}")
-            return False
+            print(f"Error during refund: {e}")
+            return Response({
+                'status': 'error',
+                'message': 'Failed to process refund'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    def process_refund(self, investment):
+        """Handles the refund process, including updating balances and creating deposits."""
+        network = investment.network
+
+        if not network:
+            raise ValueError("Investment has no associated network.")
+
+        if network.balance is None:
+            raise ValueError("Network balance is not set.")
+
+        # Update network balance
+        network.balance = F('balance') + investment.amount
+        network.save()
+
+        # Create a deposit record for the user
+        Deposit.objects.create(
+            user=investment.user,
+            network=network,
+            amount_usd=investment.amount,
+            status='completed',
+            description=f'Refund for failed investment {investment.id}'
+        )
+
+        # Update investment status to refunded
+        investment.status = 'refunded'
+        investment.save()
 
     def create_refund_notification(self, investment):
-        """
-        Create a notification for the investment refund
-        Follows the pattern of your existing status notification method
-        """
+        """Creates a notification for the user and optionally sends an email."""
         message = (
             f"Your investment of ${investment.amount} in {investment.investment_plan.name} "
-            f"on {investment.network.name} network has been refunded."
+            f"on the {investment.network.name} network has been refunded."
         )
-        
+
         # Send email notification
         try:
             send_mail(
-                'Investment Refund Notification',
-                message,
-                settings.DEFAULT_FROM_EMAIL,
-                [investment.user.email_address],
-                fail_silently=False
+                subject='Investment Refund Notification',
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[investment.user.email_address],
+                fail_silently=True
             )
         except Exception as e:
             print(f"Failed to send refund email: {e}")
 
-        # Create and return notification
+        # Create a notification record
         return Notification.objects.create(
-            user=investment.user, 
+            user=investment.user,
             message=message,
             type='INVESTMENT_REFUND'
         )
-    
+
 
 class AdminFundUserNetworkView(APIView):
     permission_classes = [permissions.IsAdminUser]
