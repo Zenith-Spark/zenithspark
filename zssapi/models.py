@@ -110,6 +110,7 @@ class Investment(models.Model):
         ('active', 'Active'),
         ('completed', 'Completed'),
         ('failed', 'Failed'),
+        ('refunded', 'Refunded'),
     ]
 
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='investments')

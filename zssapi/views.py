@@ -18,7 +18,7 @@ from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.views import TokenRefreshView
-from .serializers import CustomUserSerializer, AdminDashboardSerializer, AdminTransactionHistorySerializer, AdminInvestmentSerializer, AdminDepositSerializer, AdminWithdrawalEditSerializer, UserKYCStatusSerializer, KYCUploadSerializer, KYCAdminSerializer, KYCStatusUpdateSerializer, InvestmentSerializer,DepositSerializer, MakeDepositSerializer, NetworkSerializer,ReferralUserSerializer, ReferralSerializer, WithdrawalSerializer, MakeWithdrawalSerializer, ChangePasswordSerializer, ForgotPasswordSerializer,  UpdateDepositStatusSerializer, AdminWithdrawalSerializer, InvestmentPlanSerializer, CustomUser,Investment,  InvestmentPlan, Deposit, Withdrawal, Network, Notification, KYC, NotificationSerializer
+from .serializers import CustomUserSerializer, AdminDashboardSerializer, AdminFundUserNetworkSerializer, AdminTransactionHistorySerializer, AdminInvestmentSerializer, AdminDepositSerializer, AdminWithdrawalEditSerializer, UserKYCStatusSerializer, KYCUploadSerializer, KYCAdminSerializer, KYCStatusUpdateSerializer, InvestmentSerializer,DepositSerializer, MakeDepositSerializer, NetworkSerializer,ReferralUserSerializer, ReferralSerializer, WithdrawalSerializer, MakeWithdrawalSerializer, ChangePasswordSerializer, ForgotPasswordSerializer,  UpdateDepositStatusSerializer, AdminWithdrawalSerializer, InvestmentPlanSerializer, CustomUser,Investment,  InvestmentPlan, Deposit, Withdrawal, Network, Notification, KYC, NotificationSerializer
 from .utils import generate_random_password
 from decimal import Decimal
 import requests
@@ -83,7 +83,6 @@ class UserRegistration(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
 
-
 class LoginView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -112,6 +111,83 @@ class LoginView(APIView):
             self.revoke_tokens(user)
             return Response(
                 {"error": "Your account has been suspended. Please contact support."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Authenticate the user with email and password
+        if user.check_password(password):
+            # Generate refresh and access tokens
+            refresh = RefreshToken.for_user(user)
+
+            # Update user's IP information and save
+            user.ip_address = self.get_client_ip(request)
+            user.last_login_ip = user.ip_address
+            user.save()
+
+            return Response({
+                "id": str(user.id),
+                "email_address": user.email_address,
+                "full_name": user.full_name,
+                "ip_address": user.ip_address,
+                "refresh": str(refresh),
+                "access": str(refresh.access_token)
+            }, status=status.HTTP_200_OK)
+        else:
+            # Authentication failed
+            return Response(
+                {"error": "Invalid credentials"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+    def revoke_tokens(self, user):
+        # Revoke all outstanding tokens for the user
+        outstanding_tokens = OutstandingToken.objects.filter(user=user)
+        for token in outstanding_tokens:
+            BlacklistedToken.objects.create(token=token)
+
+    def get_client_ip(self, request):
+        x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+        if x_forwarded_for:
+            ip = x_forwarded_for.split(',')[0]
+        else:
+            ip = request.META.get('REMOTE_ADDR')
+        return ip
+    
+class AdminLoginView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def post(self, request):
+        email_address = request.data.get('email_address')
+        password = request.data.get('password')
+
+        if not email_address or not password:
+            return Response(
+                {"error": "Email and password are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Attempt to retrieve the user by email
+        try:
+            user = CustomUser .objects.get(email_address=email_address)
+        except CustomUser .DoesNotExist:
+            return Response(
+                {"error": "User  not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Check if the user is active (not suspended or deleted)
+        if not user.is_active:
+            # Revoke any existing tokens for the user
+            self.revoke_tokens(user)
+            return Response(
+                {"error": "Your account has been suspended. Please contact support."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if the user is an admin
+        if not user.is_staff:
+            return Response(
+                {"error": "Access denied. Admin privileges required."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -231,7 +307,6 @@ class ChangePassword(APIView):
         )
 
 
-
 class UserProfile(APIView):
     """ THIS ENDPOINT IS USED TO GET/UPDATE USER INFO ON THE SERVER """
 
@@ -337,10 +412,10 @@ class Networks(APIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-
 class DepositAPIView(APIView):
     serializer_class = DepositSerializer
     initiate_serializer = MakeDepositSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, network_name=None):
         if network_name:
@@ -368,17 +443,34 @@ class DepositAPIView(APIView):
                 status='pending'
             )
             
-            # Create notification and get it
+            # Create notification
             notification = self.create_deposit_notification(deposit)
             
-            # Include both deposit and notification in response
+            # Send email notification
+            try:
+                self.send_deposit_email(deposit)
+            except Exception as e:
+                # Log the error or handle it appropriately
+                print(f"Failed to send deposit email: {str(e)}")
+            
+            # Create admin notifications
+            admin_notifications = self.create_admin_notifications(deposit)
+            
+            # Include deposit, user notification, and admin notifications in response
             response_data = {
                 'deposit': self.serializer_class(deposit).data,
                 'notification': {
                     'id': notification.id,
                     'message': notification.message,
                     'created_at': notification.created_at
-                }
+                },
+                'admin_notifications': [
+                    {
+                        'id': admin_notif.id,
+                        'message': admin_notif.message,
+                        'created_at': admin_notif.created_at
+                    } for admin_notif in admin_notifications
+                ]
             }
             return Response(response_data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -387,11 +479,45 @@ class DepositAPIView(APIView):
         message = (
             f"Your deposit of {deposit.amount_usd} USD to {deposit.network.name} network "
             f"with Transaction ID: {deposit.transaction_id} has been initiated and is currently pending. "
-            f"Please send the inputed to the provided wallet address. "
+            f"Please send the amount to the provided wallet address. "
             f"If status isn't updated in 30 minutes after sending, please contact Support."
         )
         notification = Notification.objects.create(user=deposit.user, message=message)
         return notification
+
+    def create_admin_notifications(self, deposit):
+        # Create notifications for all admin users
+        admins = CustomUser.objects.filter(is_staff=True)
+        notifications = []
+        message = (
+            f"New deposit of {deposit.amount_usd} USD by {deposit.user.email_address} "
+            f"on {deposit.network.name} network is pending. "
+            f"Transaction ID: {deposit.transaction_id}"
+        )
+        
+        for admin in admins:
+            notifications.append(
+                Notification.objects.create(user=admin, message=message)
+            )
+        
+        return notifications
+
+    def send_deposit_email(self, deposit):
+        send_mail(
+            'Deposit Confirmation - Zenith Spark Station',
+            f'Dear {deposit.user.full_name},\n\n'
+            f'Thank you for initiating a deposit with Zenith Spark Station.\n\n'
+            f'Deposit Details:\n'
+            f'- Network: {deposit.network.name}\n'
+            f'- Amount: ${deposit.amount_usd}\n'
+            f'- Transaction ID: {deposit.transaction_id}\n\n'
+            'Your deposit is pending. Please send the exact amount to the provided wallet address. '
+            'If the status is not updated within 30 minutes after sending, please contact our support team.\n\n'
+            'Best regards,\n'
+            'The Zenith Spark Station Team',
+            settings.DEFAULT_FROM_EMAIL,
+            [deposit.user.email_address],
+        )
 
 
 class AdminUpdateDepositStatusAPIView(APIView):
@@ -422,6 +548,7 @@ class AdminUpdateDepositStatusAPIView(APIView):
 class WithdrawalAPIView(APIView):
     serializer_class = WithdrawalSerializer
     second_serializer = MakeWithdrawalSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, network_name=None):
         if network_name:
@@ -441,19 +568,44 @@ class WithdrawalAPIView(APIView):
         
         serializer = self.second_serializer(data=data)
         if serializer.is_valid():
+            # Generate a unique transaction ID
+            transaction_id = str(uuid.uuid4())
+            
             withdrawal = serializer.save(
                 user=request.user,
-                network=network
+                network=network,
+                transaction_id=transaction_id,
+                status='pending'
             )
+            
+            # Create user notification
             notification = self.create_withdrawal_notification(withdrawal)
             
+            # Send email notification
+            try:
+                self.send_withdrawal_email(withdrawal)
+            except Exception as e:
+                # Log the error or handle it appropriately
+                print(f"Failed to send withdrawal email: {str(e)}")
+            
+            # Create admin notifications
+            admin_notifications = self.create_admin_notifications(withdrawal)
+            
+            # Prepare response data
             response_data = {
                 'withdrawal': self.serializer_class(withdrawal).data,
                 'notification': {
                     'id': notification.id,
                     'message': notification.message,
                     'created_at': notification.created_at
-                }
+                },
+                'admin_notifications': [
+                    {
+                        'id': admin_notif.id,
+                        'message': admin_notif.message,
+                        'created_at': admin_notif.created_at
+                    } for admin_notif in admin_notifications
+                ]
             }
             return Response(response_data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -467,6 +619,40 @@ class WithdrawalAPIView(APIView):
         )
         notification = Notification.objects.create(user=withdrawal.user, message=message)
         return notification
+
+    def create_admin_notifications(self, withdrawal):
+        # Create notifications for all admin users
+        admins = CustomUser.objects.filter(is_staff=True)
+        notifications = []
+        message = (
+            f"New withdrawal request of {withdrawal.amount_usd} USD by {withdrawal.user.email_address} "
+            f"on {withdrawal.network.name} network is pending. "
+            f"Transaction ID: {withdrawal.transaction_id}"
+        )
+        
+        for admin in admins:
+            notifications.append(
+                Notification.objects.create(user=admin, message=message)
+            )
+        
+        return notifications
+
+    def send_withdrawal_email(self, withdrawal):
+        send_mail(
+            'Withdrawal Request Confirmation - Zenith Spark Station',
+            f'Dear {withdrawal.user.full_name},\n\n'
+            f'We have received your withdrawal request with Zenith Spark Station.\n\n'
+            f'Withdrawal Details:\n'
+            f'- Network: {withdrawal.network.name}\n'
+            f'- Amount: ${withdrawal.amount_usd}\n'
+            f'- Transaction ID: {withdrawal.transaction_id}\n\n'
+            'Your withdrawal request is currently pending. Our team will process it shortly. '
+            'If the status is not updated within 45 minutes, please contact our support team.\n\n'
+            'Best regards,\n'
+            'The Zenith Spark Station Team',
+            settings.DEFAULT_FROM_EMAIL,
+            [withdrawal.user.email_address],
+        )
 
 class AdminWithdrawalConfirmationView(APIView):
     serializer_class = AdminWithdrawalSerializer
@@ -586,7 +772,7 @@ class InvestmentAPIView(APIView):
                     try:
                         send_mail(
                             'Investment Confirmation - Zenith Spark Station',
-                            f'Dear {investment.user.email_address},\n\n'
+                            f'Dear {investment.user.full_name},\n\n'
                             f'Thank you for making an investment with Zenith Spark Station.\n\n'
                             f'Details of your investment:\n'
                             f'- Investment Plan: {investment_plan.name}\n'
@@ -675,7 +861,10 @@ class InvestmentAdminView(APIView):
         if 'status' in data:
             investment.status = data['status']
             investment.save()
+            
+            # Create notification and send email
             notification = self.create_status_notification(investment)
+            self.send_status_email(investment)
 
         serializer = self.serializer_class(investment, data=data, partial=True)
         if serializer.is_valid():
@@ -703,6 +892,85 @@ class InvestmentAdminView(APIView):
 
         message = status_messages.get(investment.status, "Your investment status has been updated.")
         return Notification.objects.create(user=investment.user, message=message)
+
+    def send_status_email(self, investment):
+        """
+        Send email notification about investment status change
+        """
+        email_subjects = {
+            'active': 'Investment Activated - Zenith Spark Station',
+            'completed': 'Investment Completed - Zenith Spark Station',
+            'failed': 'Investment Failed - Zenith Spark Station',
+            'cancelled': 'Investment Cancelled - Zenith Spark Station'
+        }
+
+        email_bodies = {
+            'active': (
+                f"Dear {investment.user.full_name},\n\n"
+                f"Your investment of ${investment.amount} in {investment.investment_plan.name} "
+                f"on {investment.network.name} network has been confirmed and is now active.\n\n"
+                "Investment Details:\n"
+                f"- Amount: ${investment.amount}\n"
+                f"- Plan: {investment.investment_plan.name}\n"
+                f"- Network: {investment.network.name}\n"
+                f"- Status: Active\n\n"
+                "Thank you for choosing Zenith Spark Station.\n\n"
+                "Best regards,\n"
+                "Zenith Spark Station Team"
+            ),
+            'completed': (
+                f"Dear {investment.user.full_name},\n\n"
+                f"Your investment of ${investment.amount} in {investment.investment_plan.name} "
+                f"on {investment.network.name} network has been completed successfully.\n\n"
+                "Investment Details:\n"
+                f"- Amount: ${investment.amount}\n"
+                f"- Plan: {investment.investment_plan.name}\n"
+                f"- Network: {investment.network.name}\n"
+                f"- Status: Completed\n\n"
+                "Thank you for choosing Zenith Spark Station.\n\n"
+                "Best regards,\n"
+                "Zenith Spark Station Team"
+            ),
+            'failed': (
+                f"Dear {investment.user.full_name},\n\n"
+                f"Your investment of ${investment.amount} in {investment.investment_plan.name} "
+                f"on {investment.network.name} network has failed.\n\n"
+                "Investment Details:\n"
+                f"- Amount: ${investment.amount}\n"
+                f"- Plan: {investment.investment_plan.name}\n"
+                f"- Network: {investment.network.name}\n"
+                f"- Status: Failed\n\n"
+                "Please contact our support team for more information.\n\n"
+                "Best regards,\n"
+                "Zenith Spark Station Team"
+            ),
+            'cancelled': (
+                f"Dear {investment.user.full_name},\n\n"
+                f"Your investment of ${investment.amount} in {investment.investment_plan.name} "
+                f"on {investment.network.name} network has been cancelled.\n\n"
+                "Investment Details:\n"
+                f"- Amount: ${investment.amount}\n"
+                f"- Plan: {investment.investment_plan.name}\n"
+                f"- Network: {investment.network.name}\n"
+                f"- Status: Cancelled\n\n"
+                "Please contact our support team for more information.\n\n"
+                "Best regards,\n"
+                "Zenith Spark Station Team"
+            )
+        }
+
+        try:
+            # Send email notification
+            send_mail(
+                email_subjects.get(investment.status, "Investment Status Update"),
+                email_bodies.get(investment.status, "Your investment status has been updated."),
+                settings.DEFAULT_FROM_EMAIL,
+                [investment.user.email_address],
+                fail_silently=False
+            )
+        except Exception as e:
+            # Log email sending failure or handle as needed
+            print(f"Failed to send investment status email: {str(e)}")
 
 class NotificationAPIView(APIView):
     serializer_class = NotificationSerializer
@@ -820,7 +1088,6 @@ class ExchangeRatesAPIView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-
 class NetworkBalanceView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -899,40 +1166,9 @@ class NetworkBalanceView(APIView):
                 }, status=status.HTTP_404_NOT_FOUND)
 
 
-# class NetworkBalanceView(APIView):
-#     permission_classes = [permissions.IsAuthenticated]
-#     def get(self, request, network_name=None):
-#         if network_name is None:
-#             # Fetch all network balances
-#             networks = Network.objects.all()
-#             network_balances = {
-#                 network.name: {
-#                     'balance': network.balance,
-#                     'network_name': network.name
-#                 } for network in networks
-#             }
-#             total_balance = networks.aggregate(total=Sum('balance'))['total']
-            
-#             return Response({
-#                 'network_balances': network_balances,
-#                 'total_balance': total_balance
-#             })
-#         else:
-#             # Fetch specific network balance
-#             try:
-#                 network = Network.objects.get(name=network_name)
-#                 return Response({
-#                     'network': network.name,
-#                     'balance': network.balance
-#                 })
-#             except Network.DoesNotExist:
-#                 return Response({
-#                     'error': 'Network not found'
-#                 }, status=status.HTTP_404_NOT_FOUND)
-
-
-
 class UpdateTransactionStatusView(APIView):
+    permission_classes = [IsAdminUser]
+    
     def post(self, request):
         transaction_id = request.data.get('transaction_id')
         new_status = request.data.get('status')
@@ -945,12 +1181,16 @@ class UpdateTransactionStatusView(APIView):
                 old_status = deposit.status
                 deposit.status = new_status
                 deposit.save()
-                user = deposit.user  # Get user object
+                user = deposit.user
+                transaction_type = 'deposit'
+                transaction = deposit
             elif withdrawal:
                 old_status = withdrawal.status
                 withdrawal.status = new_status
                 withdrawal.save()
-                user = withdrawal.user  # Get user object
+                user = withdrawal.user
+                transaction_type = 'withdrawal'
+                transaction = withdrawal
             else:
                 return Response({
                     'error': 'Transaction not found'
@@ -964,12 +1204,21 @@ class UpdateTransactionStatusView(APIView):
 
             # Create notification for admin
             admin_notification_message = f'Transaction with ID {transaction_id} has been updated from {old_status} to {new_status}.'
-            admin_users = CustomUser.objects.filter(is_superuser=True)  # Assuming admin users are superusers
+            admin_users = CustomUser.objects.filter(is_superuser=True)
             for admin in admin_users:
                 Notification.objects.create(
                     user=admin,
                     message=admin_notification_message
                 )
+
+            # Send email notification based on status change
+            self.send_status_change_email(
+                user, 
+                transaction, 
+                transaction_type, 
+                old_status, 
+                new_status
+            )
 
             # Fetch updated balances
             networks = Network.objects.all()
@@ -1003,8 +1252,42 @@ class UpdateTransactionStatusView(APIView):
             return Response({
                 'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
-        
 
+    def send_status_change_email(self, user, transaction, transaction_type, old_status, new_status):
+        """
+        Send email notification for transaction status change
+        """
+        try:
+            # Determine email subject based on transaction type
+            subject = f"{'Deposit' if transaction_type == 'deposit' else 'Withdrawal'} Transaction Status Update"
+            
+            # Compose email body
+            email_body = (
+                f"Dear {user.full_name},\n\n"
+                f"The status of your {transaction_type} transaction has been updated.\n\n"
+                f"Transaction Details:\n"
+                f"- Transaction ID: {transaction.transaction_id}\n"
+                f"- Network: {transaction.network.name}\n"
+                f"- Amount: ${transaction.amount_usd}\n"
+                f"- Previous Status: {old_status}\n"
+                f"- New Status: {new_status}\n\n"
+                "If you have any questions, please contact our support team.\n\n"
+                "Best regards,\n"
+                "The Zenith Spark Station Team"
+            )
+
+            # Send email
+            send_mail(
+                subject,
+                email_body,
+                settings.DEFAULT_FROM_EMAIL,
+                [user.email_address],
+                fail_silently=True  # Optionally handle email sending failures
+            )
+        except Exception as e:
+            # Log the email sending error or handle it as needed
+            print(f"Failed to send status change email: {str(e)}")
+        
 
 class UserTotalBalanceView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -1056,59 +1339,6 @@ class UserTotalBalanceView(APIView):
             'network_balances': network_balances,
             'total_balance': total_balance
         })
-
-
-# class TotalBalanceView(APIView):
-#     permission_classes = [permissions.IsAuthenticated]
-    
-#     def get(self, request):
-#         try:
-#             user = request.user
-
-#             # Calculate total deposits
-#             total_deposits = Deposit.objects.filter(
-#                 user=user,
-#                 status='completed'
-#             ).aggregate(
-#                 total=Sum('amount_usd')
-#             )['total'] or 0
-
-#             # Calculate total withdrawals
-#             total_withdrawals = Withdrawal.objects.filter(
-#                 user=user,
-#                 status='completed'
-#             ).aggregate(
-#                 total=Sum('amount_usd')
-#             )['total'] or 0
-
-#             # Calculate total active investments
-#             total_investments = Investment.objects.filter(
-#                 user=user,
-#                 status='active'  # Assuming you have a status field
-#             ).aggregate(
-#                 total=Sum('amount')
-#             )['total'] or 0
-
-#             # Calculate actual total balance (deposits - withdrawals - active investments)
-#             total_balance = round(total_deposits - total_withdrawals - total_investments, 2)
-
-#             return Response({
-#                 'status': 'success',
-#                 'data': {
-#                     'total_balance': total_balance,
-#                     'total_deposits': round(total_deposits, 2),
-#                     'total_withdrawals': round(total_withdrawals, 2),
-#                     'total_active_investments': round(total_investments, 2)
-#                 },
-#                 'message': 'Total balance retrieved successfully'
-#             }, status=status.HTTP_200_OK)
-
-#         except Exception as e:
-#             return Response({
-#                 'status': 'error',
-#                 'message': str(e)
-#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
 
 
 class ReferralView(APIView):
@@ -1503,7 +1733,6 @@ class UserManagementView(APIView):
                 Dear {user.full_name},
 
                 We regret to inform you that your account on Zenith Spark Station has been suspended.
-
                 If you believe this is an error, please contact our support team.
 
                 Best regards,
@@ -1515,8 +1744,7 @@ class UserManagementView(APIView):
                 message = f"""
                 Dear {user.full_name},
 
-                Your account on Zenith Spark Station has been reactivated.
-
+                Your account on Zenith Spark Station has been reactivated. We apologize for any inconvinence.
                 You can now log in to your account.
 
                 Best regards,
@@ -1529,7 +1757,6 @@ class UserManagementView(APIView):
                 Dear {user.full_name},
 
                 Your account on Zenith Spark Station has been permanently deleted.
-
                 If you did not request this action, please contact our support team immediately.
 
                 Best regards,
@@ -1655,71 +1882,9 @@ class AdminAllUserBalancesView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-    
-# class AdminAllUserBalancesView(APIView):
-#     permission_classes = [permissions.IsAdminUser]
-    
-#     def get(self, request):
-#         try:
-#             # Calculate total balances in a more efficient manner
-#             user_balances = []
-#             total_system_balance = 0
-            
-#             for user in CustomUser.objects.all():
-#                 # Calculate total deposits
-#                 total_deposits = Deposit.objects.filter(
-#                     user=user, 
-#                     status='completed'
-#                 ).aggregate(
-#                     total=Coalesce(Sum('amount_usd'), Value(0), output_field=DecimalField())
-#                 )['total']
-                
-#                 # Calculate total withdrawals
-#                 total_withdrawals = Withdrawal.objects.filter(
-#                     user=user, 
-#                     status='completed'
-#                 ).aggregate(
-#                     total=Coalesce(Sum('amount_usd'), Value(0), output_field=DecimalField())
-#                 )['total']
-                
-#                 # Calculate total approved investments
-#                 total_approved_investment = Investment.objects.filter(
-#                     user=user, 
-#                     status='approved'
-#                 ).aggregate(
-#                     total=Coalesce(Sum('amount'), Value(0), output_field=DecimalField())
-#                 )['total']
-                
-#                 # Calculate user balance
-#                 user_balance = total_deposits - total_withdrawals - total_approved_investment
-                
-#                 # Accumulate total system balance
-#                 total_system_balance += user_balance
-                
-#                 user_balances.append({
-#                     'user_id': user.id,
-#                     'email': user.email_address,
-#                     'balance': float(user_balance)
-#                 })
-            
-#             return Response({
-#                 'status': 'success',
-#                 'data': {
-#                     'total_system_balance': float(total_system_balance),
-#                     'user_balances': user_balances
-#                 },
-#                 'message': 'Total system balance calculated successfully'
-#             }, status=status.HTTP_200_OK)
         
-#         except Exception as e:
-#             return Response({
-#                 'status': 'error',
-#                 'message': str(e)
-#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
 class InvestmentRefundView(APIView):
-    permission_classes = [IsAdminUser ]  # Ensure only admins can trigger refund
+    permission_classes = [IsAdminUser]
 
     def post(self, request):
         investment_id = request.data.get('investment_id')
@@ -1734,9 +1899,21 @@ class InvestmentRefundView(APIView):
                 refund_result = self.refund_investment(investment)
 
                 if refund_result:
+                    # Update investment status to refunded
+                    investment.status = 'refunded'
+                    investment.save()
+
+                    # Create a notification similar to other status changes
+                    notification = self.create_refund_notification(investment)
+
                     return Response({
-                        'status': 'active',
-                        'message': 'Investment refunded successfully'
+                        'status': 'refunded',
+                        'message': 'Investment refunded successfully',
+                        'notification': {
+                            'id': notification.id,
+                            'message': notification.message,
+                            'created_at': notification.created_at
+                        }
                     }, status=status.HTTP_200_OK)
                 else:
                     return Response({
@@ -1764,44 +1941,257 @@ class InvestmentRefundView(APIView):
                     network.balance = F('balance') + investment.amount
                     network.save()
 
-                # 2. Calculate user's current balance
-                user = investment.user
-                user_balance = self.calculate_user_balance(user)
-
-                # 3. Update user's balance by adding the investment amount
-                user_balance += investment.amount
-
-                # 4. Create user notification
-                Notification.objects.create(
-                    user=user,
-                    message=f"Your investment of ${investment.amount} has been refunded due to investment failure.",
-                    type='INVESTMENT_REFUND'
+                # 2. Create a deposit for the refunded amount
+                deposit = Deposit.objects.create(
+                    user=investment.user,
+                    network=network,
+                    amount_usd=investment.amount,
+                    status='completed',
+                    description=f'Refund for failed investment {investment.id}'
                 )
 
                 return True
 
         except Exception as e:
-            # Optionally log the exception or handle it as needed
-            print(f"Error during refund: {e}")  # Log the error for debugging
+            # Print the error for debugging
+            print(f"Error during investment refund: {e}")
             return False
 
-    def calculate_user_balance(self, user):
-        # Calculate total deposits
-        total_deposits = Deposit.objects.filter(user=user, status='completed').aggregate(
-            total=Sum('amount_usd')
-        )['total'] or 0
+    def create_refund_notification(self, investment):
+        """
+        Create a notification for the investment refund
+        Follows the pattern of your existing status notification method
+        """
+        message = (
+            f"Your investment of ${investment.amount} in {investment.investment_plan.name} "
+            f"on {investment.network.name} network has been refunded."
+        )
+        
+        # Send email notification
+        try:
+            send_mail(
+                'Investment Refund Notification',
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [investment.user.email_address],
+                fail_silently=False
+            )
+        except Exception as e:
+            print(f"Failed to send refund email: {e}")
 
-        # Calculate total withdrawals
-        total_withdrawals = Withdrawal.objects.filter(user=user, status='completed').aggregate(
-            total=Sum('amount_usd')
-        )['total'] or 0
+        # Create and return notification
+        return Notification.objects.create(
+            user=investment.user, 
+            message=message,
+            type='INVESTMENT_REFUND'
+        )
+    
 
-        # Calculate total approved investments
-        total_approved_investments = Investment.objects.filter(user=user, status='active').aggregate(
-            total=Sum('amount')
-        )['total'] or 0
+class AdminFundUserNetworkView(APIView):
+    permission_classes = [permissions.IsAdminUser]
 
-        # Calculate user balance
-        user_balance = total_deposits - total_withdrawals - total_approved_investments
+    def post(self, request):
+        """
+        Endpoint for admin to fund a user's network
+        Supports both deposit and withdrawal operations
+        """
+        # Validate input data
+        serializer = AdminFundUserNetworkSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Extract validated data
+        validated_data = serializer.validated_data
+        email_address = validated_data.get('email_address')
+        network_name = validated_data.get('network_name')
+        amount_usd = validated_data.get('amount_usd')
+        amount_crypto = validated_data.get('amount_crypto', None)
+        transaction_type = validated_data.get('transaction_type')
+        wallet_address = validated_data.get('wallet_address', '')
 
-        return user_balance
+        try:
+            # Retrieve user and network
+            user = CustomUser.objects.get(email_address=email_address)
+            network = Network.objects.get(name=network_name)
+
+            # Perform transaction based on type
+            if transaction_type == 'deposit':
+                transaction = self.process_admin_deposit(
+                    user, 
+                    network, 
+                    amount_usd, 
+                    amount_crypto
+                )
+            elif transaction_type == 'withdrawal':
+                transaction = self.process_admin_withdrawal(
+                    user, 
+                    network, 
+                    amount_usd, 
+                    amount_crypto,
+                    wallet_address
+                )
+            else:
+                return Response(
+                    {"error": "Invalid transaction type"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Create notifications
+            user_notification = self.create_user_notification(
+                user, 
+                transaction, 
+                transaction_type
+            )
+            admin_notifications = self.create_admin_notifications(
+                user, 
+                transaction, 
+                transaction_type
+            )
+
+            # Send email notification
+            try:
+                self.send_transaction_email(
+                    user, 
+                    transaction, 
+                    transaction_type
+                )
+            except Exception:
+                # Silently handle email sending failure
+                pass
+
+            # Prepare response
+            response_data = {
+                'transaction': self.get_transaction_serializer(transaction).data,
+                'user_notification': {
+                    'id': user_notification.id,
+                    'message': user_notification.message,
+                    'created_at': user_notification.created_at
+                },
+                'admin_notifications': [
+                    {
+                        'id': notif.id,
+                        'message': notif.message,
+                        'created_at': notif.created_at
+                    } for notif in admin_notifications
+                ]
+            }
+
+            return Response(response_data, status=status.HTTP_201_CREATED)
+
+        except CustomUser.DoesNotExist:
+            return Response(
+                {"error": "User not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Network.DoesNotExist:
+            return Response(
+                {"error": "Network not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {"error": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def process_admin_deposit(self, user, network, amount_usd, amount_crypto=None):
+        """
+        Process admin-initiated deposit
+        """
+        with transaction.atomic():
+            # Create deposit record
+            deposit = Deposit.objects.create(
+                user=user,
+                network=network,
+                amount_usd=amount_usd,
+                amount_crypto=amount_crypto,
+                status='completed'
+            )
+            # Update network balance
+            network.balance += amount_usd
+            network.save()
+            return deposit
+
+    def process_admin_withdrawal(self, user, network, amount_usd, amount_crypto=None, wallet_address=''):
+        """
+        Process admin-initiated withdrawal
+        """
+        with transaction.atomic():
+            # Create withdrawal record
+            withdrawal = Withdrawal.objects.create(
+                user=user,
+                network=network,
+                amount_usd=amount_usd,
+                amount_crypto=amount_crypto,
+                wallet_address=wallet_address,
+                status='completed'
+            )
+            # Update network balance
+            network.balance -= amount_usd
+            network.save()
+            return withdrawal
+
+    def create_user_notification(self, user, transaction, transaction_type):
+        """
+        Create notification for the user
+        """
+        message = (
+            f"Admin {'deposited' if transaction_type == 'deposit' else 'withdrew'} "
+            f"${transaction.amount_usd} to/from your {transaction.network.name} network. "
+            f"Transaction ID: {transaction.transaction_id}"
+        )
+        return Notification.objects.create(user=user, message=message)
+
+    def create_admin_notifications(self, user, transaction, transaction_type):
+        """
+        Create notifications for all admin users
+        """
+        admins = CustomUser.objects.filter(is_staff=True)
+        notifications = []
+        message = (
+            f"Admin {'deposited' if transaction_type == 'deposit' else 'withdrew'} "
+            f"${transaction.amount_usd} for user {user.email_address} "
+            f"on {transaction.network.name} network. "
+            f"Transaction ID: {transaction.transaction_id}"
+        )
+    
+        for admin in admins:
+            notifications.append(
+                Notification.objects.create(user=admin, message=message)
+            )
+        return notifications
+
+    def send_transaction_email(self, user, transaction, transaction_type):
+        """
+        Send email notification for the transaction
+        """
+        send_mail(
+            f'{"Deposit" if transaction_type == "deposit" else "Withdrawal"} '
+            'Confirmation - Zenith Spark Station',
+            f'Dear {user.email_address},\n\n'
+            f'An admin has {"deposited" if transaction_type == "deposit" else "withdrawn"} '
+            f'funds to/from your account.\n\n'
+            f'Transaction Details:\n'
+            f'- Network: {transaction.network.name}\n'
+            f'- Amount (USD): ${transaction.amount_usd}\n'
+            f'- Transaction ID: {transaction.transaction_id}\n\n'
+            'If you have any questions, please contact our support team.\n\n'
+            'Best regards,\n'
+            'The Zenith Spark Station Team',
+            settings.DEFAULT_FROM_EMAIL,
+            [user.email_address],
+        )
+
+    def get_transaction_serializer(self, transaction):
+        """
+        Dynamically choose serializer based on transaction type
+        """
+        if isinstance(transaction, Deposit):
+            return DepositSerializer(transaction)
+        elif isinstance(transaction, Withdrawal):
+            return WithdrawalSerializer(transaction)
+    

@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, UserCountView, AdminNetworkBalanceView, AdminAllUserBalancesView, UserManagementView, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, InvestmentRefundView, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, UserTotalBalanceView
+from .views import UserRegistration, AdminLoginView, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, UserCountView, AdminNetworkBalanceView, AdminAllUserBalancesView, UserManagementView, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, InvestmentRefundView, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, UserTotalBalanceView
 
 
 urlpatterns = [
@@ -10,6 +10,7 @@ urlpatterns = [
     path('get-referral-details/', UserReferralDetailsView.as_view(), name='referral-details'),
     path('register/', UserRegistration.as_view(), name='user-registration'),
     path('login/', LoginView.as_view(), name='login'),
+    path('admin/login/', AdminLoginView.as_view(), name='admin-login'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('forgot-password/', ForgotPasswordView.as_view(), name='forgot-password'),
     path('change-password/', ChangePassword.as_view(), name='change-password'),
