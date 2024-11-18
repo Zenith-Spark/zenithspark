@@ -1592,53 +1592,53 @@ class UserManagementView(APIView):
     
 
 
-    
 class AdminAllUserBalancesView(APIView):
     permission_classes = [permissions.IsAdminUser]
     
     def get(self, request):
         try:
-            # Calculate total balances in a more efficient manner
+            # Fetch all users
+            users = CustomUser.objects.all()
+
+            # Aggregated deposits by user
+            deposits = Deposit.objects.filter(status='completed').values('user_id').annotate(
+                total_deposits=Coalesce(Sum('amount_usd'), Value(0))
+            )
+
+            # Aggregated withdrawals by user
+            withdrawals = Withdrawal.objects.filter(status='completed').values('user_id').annotate(
+                total_withdrawals=Coalesce(Sum('amount_usd'), Value(0))
+            )
+
+            # Aggregated investments by user
+            investments = Investment.objects.filter(status='approved').values('user_id').annotate(
+                total_investments=Coalesce(Sum('amount'), Value(0))
+            )
+
+            # Map aggregates by user_id
+            deposits_map = {item['user_id']: item['total_deposits'] for item in deposits}
+            withdrawals_map = {item['user_id']: item['total_withdrawals'] for item in withdrawals}
+            investments_map = {item['user_id']: item['total_investments'] for item in investments}
+
+            # Calculate balances
             user_balances = []
             total_system_balance = 0
-            
-            for user in CustomUser.objects.all():
-                # Calculate total deposits
-                total_deposits = Deposit.objects.filter(
-                    user=user, 
-                    status='completed'
-                ).aggregate(
-                    total=Coalesce(Sum('amount_usd'), Value(0), output_field=DecimalField())
-                )['total']
-                
-                # Calculate total withdrawals
-                total_withdrawals = Withdrawal.objects.filter(
-                    user=user, 
-                    status='completed'
-                ).aggregate(
-                    total=Coalesce(Sum('amount_usd'), Value(0), output_field=DecimalField())
-                )['total']
-                
-                # Calculate total approved investments
-                total_approved_investment = Investment.objects.filter(
-                    user=user, 
-                    status='approved'
-                ).aggregate(
-                    total=Coalesce(Sum('amount'), Value(0), output_field=DecimalField())
-                )['total']
-                
-                # Calculate user balance
-                user_balance = total_deposits - total_withdrawals - total_approved_investment
-                
-                # Accumulate total system balance
+
+            for user in users:
+                user_id = user.id
+                total_deposits = deposits_map.get(user_id, 0)
+                total_withdrawals = withdrawals_map.get(user_id, 0)
+                total_investments = investments_map.get(user_id, 0)
+
+                user_balance = total_deposits - total_withdrawals - total_investments
                 total_system_balance += user_balance
-                
+
                 user_balances.append({
-                    'user_id': user.id,
+                    'user_id': user_id,
                     'email': user.email_address,
                     'balance': float(user_balance)
                 })
-            
+
             return Response({
                 'status': 'success',
                 'data': {
@@ -1653,6 +1653,69 @@ class AdminAllUserBalancesView(APIView):
                 'status': 'error',
                 'message': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+    
+# class AdminAllUserBalancesView(APIView):
+#     permission_classes = [permissions.IsAdminUser]
+    
+#     def get(self, request):
+#         try:
+#             # Calculate total balances in a more efficient manner
+#             user_balances = []
+#             total_system_balance = 0
+            
+#             for user in CustomUser.objects.all():
+#                 # Calculate total deposits
+#                 total_deposits = Deposit.objects.filter(
+#                     user=user, 
+#                     status='completed'
+#                 ).aggregate(
+#                     total=Coalesce(Sum('amount_usd'), Value(0), output_field=DecimalField())
+#                 )['total']
+                
+#                 # Calculate total withdrawals
+#                 total_withdrawals = Withdrawal.objects.filter(
+#                     user=user, 
+#                     status='completed'
+#                 ).aggregate(
+#                     total=Coalesce(Sum('amount_usd'), Value(0), output_field=DecimalField())
+#                 )['total']
+                
+#                 # Calculate total approved investments
+#                 total_approved_investment = Investment.objects.filter(
+#                     user=user, 
+#                     status='approved'
+#                 ).aggregate(
+#                     total=Coalesce(Sum('amount'), Value(0), output_field=DecimalField())
+#                 )['total']
+                
+#                 # Calculate user balance
+#                 user_balance = total_deposits - total_withdrawals - total_approved_investment
+                
+#                 # Accumulate total system balance
+#                 total_system_balance += user_balance
+                
+#                 user_balances.append({
+#                     'user_id': user.id,
+#                     'email': user.email_address,
+#                     'balance': float(user_balance)
+#                 })
+            
+#             return Response({
+#                 'status': 'success',
+#                 'data': {
+#                     'total_system_balance': float(total_system_balance),
+#                     'user_balances': user_balances
+#                 },
+#                 'message': 'Total system balance calculated successfully'
+#             }, status=status.HTTP_200_OK)
+        
+#         except Exception as e:
+#             return Response({
+#                 'status': 'error',
+#                 'message': str(e)
+#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class InvestmentRefundView(APIView):
