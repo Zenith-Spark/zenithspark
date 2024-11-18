@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework import status,permissions
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.views import TokenRefreshView
 from .serializers import CustomUserSerializer, AdminDashboardSerializer, AdminTransactionHistorySerializer, AdminInvestmentSerializer, AdminDepositSerializer, AdminWithdrawalEditSerializer, UserKYCStatusSerializer, KYCUploadSerializer, KYCAdminSerializer, KYCStatusUpdateSerializer, InvestmentSerializer,DepositSerializer, MakeDepositSerializer, NetworkSerializer,ReferralUserSerializer, ReferralSerializer, WithdrawalSerializer, MakeWithdrawalSerializer, ChangePasswordSerializer, ForgotPasswordSerializer,  UpdateDepositStatusSerializer, AdminWithdrawalSerializer, InvestmentPlanSerializer, CustomUser,Investment,  InvestmentPlan, Deposit, Withdrawal, Network, Notification, KYC, NotificationSerializer
@@ -22,6 +23,7 @@ from .utils import generate_random_password
 from decimal import Decimal
 import requests
 import uuid
+
 
 
 class UserRegistration(APIView):
@@ -47,79 +49,40 @@ class UserRegistration(APIView):
             
             # Generate JWT tokens
             refresh = RefreshToken.for_user(user)
-            
+
+            try:
+                send_mail(
+                    'Welcome to Zenith Spark Station',
+                    f'Dear {user.email_address},\n\n'
+                    'Thank you for registering on Zenith Spark Station.\n\n'
+                    'We are excited to have you on board! Feel free to explore our platform and enjoy the features we offer.\n\n'
+                    'If you have any questions or concerns, please contact us at support@zenithsparkstation.com or through our support chatbox on the your dashboard.\n\n'
+                    'Best regards,\n'
+                    'The Zenith Spark Station Team',
+                    settings.DEFAULT_FROM_EMAIL,
+                    [user.email_address],
+                )
+            except Exception as e:
+                return Response({
+                    "data": "User created successfully, but email could not be sent.",
+                    "error": str(e),
+                    "id": str(user.id),
+                    "referral_code": user.referral_code,
+                    "refresh": str(refresh),
+                    "access": str(refresh.access_token),
+                }, status=status.HTTP_201_CREATED)
+
             return Response({
                 "data": "User created successfully",
                 "id": str(user.id),
                 "referral_code": user.referral_code,
                 "refresh": str(refresh),
-                "access": str(refresh.access_token)
+                "access": str(refresh.access_token),
             }, status=status.HTTP_201_CREATED)
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
 
-# class LoginView(APIView):
-#     permission_classes = [permissions.AllowAny]
-
-#     def post(self, request):
-#         email_address = request.data.get('email_address')
-#         password = request.data.get('password')
-
-#         if not email_address or not password:
-#             return Response(
-#                 {"error": "Email and password are required"},
-#                 status=status.HTTP_400_BAD_REQUEST
-#             )
-
-#         # Authenticate the user with email and password
-#         user = authenticate(request, email_address=email_address, password=password)
-
-#         if user is not None:
-#             if user.is_active:
-#                 # Generate refresh and access tokens
-#                 refresh = RefreshToken.for_user(user)
-
-#                 # Update user's IP information and save
-#                 user.ip_address = self.get_client_ip(request)
-#                 user.last_login_ip = user.ip_address
-#                 user.save()
-
-#                 return Response({
-#                     "id": str(user.id),
-#                     "email_address": user.email_address,
-#                     "full_name": user.full_name,
-#                     "ip_address": user.ip_address,
-#                     "refresh": str(refresh),
-#                     "access": str(refresh.access_token)
-#                 }, status=status.HTTP_200_OK)
-#             else:
-#                 return Response(
-#                     {"error": "User account is disabled."},
-#                     status=status.HTTP_403_FORBIDDEN
-#                 )
-
-#         # Authentication failed
-#         return Response(
-#             {"error": "Invalid credentials"},
-#             status=status.HTTP_401_UNAUTHORIZED
-#         )
-
-#     def get_client_ip(self, request):
-#         x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
-#         if x_forwarded_for:
-#             ip = x_forwarded_for.split(',')[0]
-#         else:
-#             ip = request.META.get('REMOTE_ADDR')
-#         return ip
-    
-from rest_framework import permissions
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from django.contrib.auth import authenticate
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
-from .models import CustomUser   # Adjust the import based on your project structure
 
 class LoginView(APIView):
     permission_classes = [permissions.AllowAny]
@@ -619,6 +582,26 @@ class InvestmentAPIView(APIView):
                         expected_profit=expected_profit,
                         return_time=return_time
                     )
+                    # Send email notification to the user
+                    try:
+                        send_mail(
+                            'Investment Confirmation - Zenith Spark Station',
+                            f'Dear {investment.user.email_address},\n\n'
+                            f'Thank you for making an investment with Zenith Spark Station.\n\n'
+                            f'Details of your investment:\n'
+                            f'- Investment Plan: {investment_plan.name}\n'
+                            f'- Amount: ${amount}\n'
+                            f'- Expected Profit: ${expected_profit}\n'
+                            f'- Return Time: {return_time.strftime("%Y-%m-%d %H:%M:%S")}\n\n'
+                            'Your investment is pending approval. If it is not approved within 30 minutes, please reach out to support.\n\n'
+                            'Best regards,\n'
+                            'The Zenith Spark Station Team',
+                            settings.DEFAULT_FROM_EMAIL,
+                            [investment.user.email_address],
+                        )
+                    except Exception as e:
+                        # Log the error or handle it appropriately
+                        print(f"Failed to send investment email: {str(e)}")
 
                     user_notification = self.create_investment_notification(investment)
                     admin_notifications = self.create_admin_notification(investment)
@@ -837,36 +820,115 @@ class ExchangeRatesAPIView(APIView):
         }, status=status.HTTP_200_OK)
 
 
+
 class NetworkBalanceView(APIView):
     permission_classes = [permissions.IsAuthenticated]
+
     def get(self, request, network_name=None):
+        user = request.user  # Get the authenticated user
+
         if network_name is None:
-            # Fetch all network balances
-            networks = Network.objects.all()
-            network_balances = {
-                network.name: {
-                    'balance': network.balance,
-                    'network_name': network.name
-                } for network in networks
-            }
-            total_balance = networks.aggregate(total=Sum('balance'))['total']
-            
+            # Fetch balances for all networks
+            deposits = Deposit.objects.filter(user=user, status='completed').values('network__name').annotate(
+                total_deposited=Sum('amount_usd')
+            )
+            withdrawals = Withdrawal.objects.filter(user=user, status='completed').values('network__name').annotate(
+                total_withdrawn=Sum('amount_usd')
+            )
+            investments = Investment.objects.filter(
+                user=user, 
+                status__in=['pending', 'active']
+            ).values('network__name').annotate(
+                total_invested=Sum('amount')
+            )
+
+            # Prepare balances per network
+            network_balances = {}
+            for deposit in deposits:
+                network_name = deposit['network__name']
+                total_deposited = deposit['total_deposited']
+
+                total_withdrawn = next(
+                    (withdrawal['total_withdrawn'] for withdrawal in withdrawals if withdrawal['network__name'] == network_name),
+                    0
+                )
+
+                total_invested = next(
+                    (investment['total_invested'] for investment in investments if investment['network__name'] == network_name),
+                    0
+                )
+
+                # Calculate user's network balance
+                network_balances[network_name] = total_deposited - total_withdrawn - total_invested
+
+            # Calculate the total balance across all networks for the user
+            total_balance = sum(network_balances.values())
+
             return Response({
                 'network_balances': network_balances,
                 'total_balance': total_balance
             })
+
         else:
-            # Fetch specific network balance
+            # Fetch balance for a specific network
             try:
-                network = Network.objects.get(name=network_name)
+                deposits = Deposit.objects.filter(user=user, network__name=network_name, status='completed').aggregate(
+                    total_deposited=Sum('amount_usd')
+                )['total_deposited'] or 0
+
+                withdrawals = Withdrawal.objects.filter(user=user, network__name=network_name, status='completed').aggregate(
+                    total_withdrawn=Sum('amount_usd')
+                )['total_withdrawn'] or 0
+
+                investments = Investment.objects.filter(
+                    user=user, network__name=network_name, status__in=['pending', 'active']
+                ).aggregate(
+                    total_invested=Sum('amount')
+                )['total_invested'] or 0
+
+                # Calculate the balance for the specific network
+                balance = deposits - withdrawals - investments
+
                 return Response({
-                    'network': network.name,
-                    'balance': network.balance
+                    'network': network_name,
+                    'balance': balance
                 })
             except Network.DoesNotExist:
                 return Response({
                     'error': 'Network not found'
                 }, status=status.HTTP_404_NOT_FOUND)
+
+
+# class NetworkBalanceView(APIView):
+#     permission_classes = [permissions.IsAuthenticated]
+#     def get(self, request, network_name=None):
+#         if network_name is None:
+#             # Fetch all network balances
+#             networks = Network.objects.all()
+#             network_balances = {
+#                 network.name: {
+#                     'balance': network.balance,
+#                     'network_name': network.name
+#                 } for network in networks
+#             }
+#             total_balance = networks.aggregate(total=Sum('balance'))['total']
+            
+#             return Response({
+#                 'network_balances': network_balances,
+#                 'total_balance': total_balance
+#             })
+#         else:
+#             # Fetch specific network balance
+#             try:
+#                 network = Network.objects.get(name=network_name)
+#                 return Response({
+#                     'network': network.name,
+#                     'balance': network.balance
+#                 })
+#             except Network.DoesNotExist:
+#                 return Response({
+#                     'error': 'Network not found'
+#                 }, status=status.HTTP_404_NOT_FOUND)
 
 
 
@@ -943,62 +1005,109 @@ class UpdateTransactionStatusView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
 
-# class TotalBalanceView(APIView):
-#     def get(self, request):
-#         total_balance = Network.objects.aggregate(total=Sum('balance'))['total'] or 0
-#         return Response({'total_balance': total_balance}, status=status.HTTP_200_OK)
-        
 
-class TotalBalanceView(APIView):
+class UserTotalBalanceView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    
+
     def get(self, request):
-        try:
-            user = request.user
+        user = request.user  # Get the authenticated user
 
-            # Calculate total deposits
-            total_deposits = Deposit.objects.filter(
-                user=user,
-                status='completed'
-            ).aggregate(
-                total=Sum('amount_usd')
-            )['total'] or 0
+        # Fetch deposits for the user
+        deposits = Deposit.objects.filter(user=user, status='completed').values('network__name').annotate(
+            total_deposited=Sum('amount_usd')
+        )
 
-            # Calculate total withdrawals
-            total_withdrawals = Withdrawal.objects.filter(
-                user=user,
-                status='completed'
-            ).aggregate(
-                total=Sum('amount_usd')
-            )['total'] or 0
+        # Fetch withdrawals for the user
+        withdrawals = Withdrawal.objects.filter(user=user, status='completed').values('network__name').annotate(
+            total_withdrawn=Sum('amount_usd')
+        )
 
-            # Calculate total active investments
-            total_investments = Investment.objects.filter(
-                user=user,
-                status='active'  # Assuming you have a status field
-            ).aggregate(
-                total=Sum('amount')
-            )['total'] or 0
+        # Fetch investments for the user
+        investments = Investment.objects.filter(
+            user=user, 
+            status__in=['pending', 'active']  # Only pending or active investments
+        ).values('network__name').annotate(
+            total_invested=Sum('amount')
+        )
 
-            # Calculate actual total balance (deposits - withdrawals - active investments)
-            total_balance = round(total_deposits - total_withdrawals - total_investments, 2)
+        # Calculate the balance per network
+        network_balances = {}
+        for deposit in deposits:
+            network_name = deposit['network__name']
+            total_deposited = deposit['total_deposited']
 
-            return Response({
-                'status': 'success',
-                'data': {
-                    'total_balance': total_balance,
-                    'total_deposits': round(total_deposits, 2),
-                    'total_withdrawals': round(total_withdrawals, 2),
-                    'total_active_investments': round(total_investments, 2)
-                },
-                'message': 'Total balance retrieved successfully'
-            }, status=status.HTTP_200_OK)
+            total_withdrawn = next(
+                (withdrawal['total_withdrawn'] for withdrawal in withdrawals if withdrawal['network__name'] == network_name),
+                0  # Default to 0 if no withdrawals
+            )
 
-        except Exception as e:
-            return Response({
-                'status': 'error',
-                'message': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            total_invested = next(
+                (investment['total_invested'] for investment in investments if investment['network__name'] == network_name),
+                0  # Default to 0 if no investments
+            )
+
+            # Calculate the net balance for this network
+            network_balances[network_name] = total_deposited - total_withdrawn - total_invested
+
+        # Calculate the total balance across all networks
+        total_balance = sum(network_balances.values())
+
+        return Response({
+            'network_balances': network_balances,
+            'total_balance': total_balance
+        })
+
+
+# class TotalBalanceView(APIView):
+#     permission_classes = [permissions.IsAuthenticated]
+    
+#     def get(self, request):
+#         try:
+#             user = request.user
+
+#             # Calculate total deposits
+#             total_deposits = Deposit.objects.filter(
+#                 user=user,
+#                 status='completed'
+#             ).aggregate(
+#                 total=Sum('amount_usd')
+#             )['total'] or 0
+
+#             # Calculate total withdrawals
+#             total_withdrawals = Withdrawal.objects.filter(
+#                 user=user,
+#                 status='completed'
+#             ).aggregate(
+#                 total=Sum('amount_usd')
+#             )['total'] or 0
+
+#             # Calculate total active investments
+#             total_investments = Investment.objects.filter(
+#                 user=user,
+#                 status='active'  # Assuming you have a status field
+#             ).aggregate(
+#                 total=Sum('amount')
+#             )['total'] or 0
+
+#             # Calculate actual total balance (deposits - withdrawals - active investments)
+#             total_balance = round(total_deposits - total_withdrawals - total_investments, 2)
+
+#             return Response({
+#                 'status': 'success',
+#                 'data': {
+#                     'total_balance': total_balance,
+#                     'total_deposits': round(total_deposits, 2),
+#                     'total_withdrawals': round(total_withdrawals, 2),
+#                     'total_active_investments': round(total_investments, 2)
+#                 },
+#                 'message': 'Total balance retrieved successfully'
+#             }, status=status.HTTP_200_OK)
+
+#         except Exception as e:
+#             return Response({
+#                 'status': 'error',
+#                 'message': str(e)
+#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 
 
@@ -1563,7 +1672,7 @@ class InvestmentRefundView(APIView):
 
                 if refund_result:
                     return Response({
-                        'status': 'success',
+                        'status': 'active',
                         'message': 'Investment refunded successfully'
                     }, status=status.HTTP_200_OK)
                 else:
@@ -1625,7 +1734,7 @@ class InvestmentRefundView(APIView):
         )['total'] or 0
 
         # Calculate total approved investments
-        total_approved_investments = Investment.objects.filter(user=user, status='approved').aggregate(
+        total_approved_investments = Investment.objects.filter(user=user, status='active').aggregate(
             total=Sum('amount')
         )['total'] or 0
 

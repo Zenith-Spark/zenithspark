@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, UserCountView, AdminNetworkBalanceView, AdminAllUserBalancesView, UserManagementView, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, InvestmentRefundView, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, TotalBalanceView
+from .views import UserRegistration, LoginView, LogoutView, ForgotPasswordView, ChangePassword, UserProfile, UserCountView, AdminNetworkBalanceView, AdminAllUserBalancesView, UserManagementView, KYCUploadView, UserKYCStatusView, AdminDashboardUsersDetail, InvestmentRefundView, AdminTransactionsHistory, AdminKYCListView, AdminKYCUpdateView, InvestmentAPIView, InvestmentPlanListView, InvestmentPlanAdminView, AdminInvestmentEditView, AdminTransactionEditView, InvestmentAPIView, ReferralView, ApplyReferralCode, AdminReferralView, MyReferralCodeView, UserReferralDetailsView , InvestmentAdminView, Networks, DepositAPIView, AdminUpdateDepositStatusAPIView, WithdrawalAPIView, AdminWithdrawalConfirmationView, NotificationAPIView, NetworkTransactionHistoryAPIView, ExchangeRatesAPIView, NetworkBalanceView, UpdateTransactionStatusView, UserTotalBalanceView
 
 
 urlpatterns = [
@@ -37,7 +37,7 @@ urlpatterns = [
     path('network-balances/', NetworkBalanceView.as_view(), name='network-balances'),
     path('network-balance/<str:network_name>/', NetworkBalanceView.as_view(), name='network-balance'),
     path('update-transaction-status/', UpdateTransactionStatusView.as_view(), name='update-transaction-status'),
-    path('total-balance/', TotalBalanceView.as_view(), name='total-balance'),
+    path('total-balance/', UserTotalBalanceView.as_view(), name='total-balance'),
     path('admin/users-detail/', AdminDashboardUsersDetail.as_view(), name='admin-dashboard'),
     path('admin/history/', AdminTransactionsHistory.as_view(), name='admin-transactions'),
     path('admin/investment/<int:investment_id>/edit/', AdminInvestmentEditView.as_view(), name='admin-investment-edit'),
