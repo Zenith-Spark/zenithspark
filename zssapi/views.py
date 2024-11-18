@@ -2088,7 +2088,7 @@ class AdminFundUserNetworkView(APIView):
         amount_usd = validated_data.get('amount_usd')
         amount_crypto = validated_data.get('amount_crypto', None)
         transaction_type = validated_data.get('transaction_type')
-        wallet_address = validated_data.get('wallet_address', '')
+        wallet_address = validated_data.get('wallet_address', None)
 
         try:
             # Retrieve user and network
@@ -2118,36 +2118,15 @@ class AdminFundUserNetworkView(APIView):
                 )
 
             # Create notifications
-            user_notification = self.create_user_notification(
-                user, 
-                transaction, 
-                transaction_type
-            )
             admin_notifications = self.create_admin_notifications(
                 user, 
                 transaction, 
                 transaction_type
             )
 
-            # Send email notification
-            try:
-                self.send_transaction_email(
-                    user, 
-                    transaction, 
-                    transaction_type
-                )
-            except Exception:
-                # Silently handle email sending failure
-                pass
-
             # Prepare response
             response_data = {
                 'transaction': self.get_transaction_serializer(transaction).data,
-                'user_notification': {
-                    'id': user_notification.id,
-                    'message': user_notification.message,
-                    'created_at': user_notification.created_at
-                },
                 'admin_notifications': [
                     {
                         'id': notif.id,
@@ -2193,7 +2172,7 @@ class AdminFundUserNetworkView(APIView):
             network.save()
             return deposit
 
-    def process_admin_withdrawal(self, user, network, amount_usd, amount_crypto=None, wallet_address=''):
+    def process_admin_withdrawal(self, user, network, amount_usd, amount_crypto=None, wallet_address=None):
         """
         Process admin-initiated withdrawal
         """
@@ -2212,16 +2191,6 @@ class AdminFundUserNetworkView(APIView):
             network.save()
             return withdrawal
 
-    def create_user_notification(self, user, transaction, transaction_type):
-        """
-        Create notification for the user
-        """
-        message = (
-            f"Admin {'deposited' if transaction_type == 'deposit' else 'withdrew'} "
-            f"${transaction.amount_usd} to/from your {transaction.network.name} network. "
-            f"Transaction ID: {transaction.transaction_id}"
-        )
-        return Notification.objects.create(user=user, message=message)
 
     def create_admin_notifications(self, user, transaction, transaction_type):
         """
@@ -2242,26 +2211,6 @@ class AdminFundUserNetworkView(APIView):
             )
         return notifications
 
-    def send_transaction_email(self, user, transaction, transaction_type):
-        """
-        Send email notification for the transaction
-        """
-        send_mail(
-            f'{"Deposit" if transaction_type == "deposit" else "Withdrawal"} '
-            'Confirmation - Zenith Spark Station',
-            f'Dear {user.email_address},\n\n'
-            f'An admin has {"deposited" if transaction_type == "deposit" else "withdrawn"} '
-            f'funds to/from your account.\n\n'
-            f'Transaction Details:\n'
-            f'- Network: {transaction.network.name}\n'
-            f'- Amount (USD): ${transaction.amount_usd}\n'
-            f'- Transaction ID: {transaction.transaction_id}\n\n'
-            'If you have any questions, please contact our support team.\n\n'
-            'Best regards,\n'
-            'The Zenith Spark Station Team',
-            settings.DEFAULT_FROM_EMAIL,
-            [user.email_address],
-        )
 
     def get_transaction_serializer(self, transaction):
         """
