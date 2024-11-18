@@ -1819,71 +1819,6 @@ class UserManagementView(APIView):
     
 
 
-# class AdminAllUserBalancesView(APIView):
-#     permission_classes = [permissions.IsAdminUser]
-    
-#     def get(self, request):
-#         try:
-#             # Fetch all users
-#             users = CustomUser.objects.all()
-
-#             # Aggregated deposits by user
-#             deposits = Deposit.objects.filter(status='completed').values('user_id').annotate(
-#                 total_deposits=Coalesce(Sum('amount_usd'), Value(0))
-#             )
-
-#             # Aggregated withdrawals by user
-#             withdrawals = Withdrawal.objects.filter(status='completed').values('user_id').annotate(
-#                 total_withdrawals=Coalesce(Sum('amount_usd'), Value(0))
-#             )
-
-#             # Aggregated investments by user
-#             investments = Investment.objects.filter(status='active').values('user_id').annotate(
-#                 total_investments=Coalesce(Sum('amount'), Value(0))
-#             )
-
-#             # Map aggregates by user_id
-#             deposits_map = {item['user_id']: item['total_deposits'] for item in deposits}
-#             withdrawals_map = {item['user_id']: item['total_withdrawals'] for item in withdrawals}
-#             investments_map = {item['user_id']: item['total_investments'] for item in investments}
-
-#             # Calculate balances
-#             user_balances = []
-#             total_system_balance = 0
-
-#             for user in users:
-#                 user_id = user.id
-#                 total_deposits = deposits_map.get(user_id, 0)
-#                 total_withdrawals = withdrawals_map.get(user_id, 0)
-#                 total_investments = investments_map.get(user_id, 0)
-
-#                 user_balance = total_deposits - total_withdrawals - total_investments
-#                 total_system_balance += user_balance
-
-#                 user_balances.append({
-#                     'user_id': user_id,
-#                     'email': user.email_address,
-#                     'balance': float(user_balance)
-#                 })
-
-#             return Response({
-#                 'status': 'success',
-#                 'data': {
-#                     'total_system_balance': float(total_system_balance),
-#                     'user_balances': user_balances
-#                 },
-#                 'message': 'Total system balance calculated successfully'
-#             }, status=status.HTTP_200_OK)
-        
-#         except Exception as e:
-#             return Response({
-#                 'status': 'error',
-#                 'message': str(e)
-#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-from django.db.models import Sum, Value, DecimalField, F
-from django.db.models.functions import Coalesce
-
 class AdminAllUserBalancesView(APIView):
     permission_classes = [permissions.IsAdminUser]
     
@@ -1958,34 +1893,35 @@ class AdminAllUserBalancesView(APIView):
 
 
 class InvestmentRefundView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsAdminUser]
 
     def post(self, request):
         investment_id = request.data.get('investment_id')
-
+        
         if not investment_id:
             return Response({
                 'status': 'error',
                 'message': 'Investment ID is required'
             }, status=status.HTTP_400_BAD_REQUEST)
-
+        
         try:
-            # Fetch the investment record
+            # Fetch the investment
             investment = Investment.objects.get(id=investment_id)
 
-            # Validate the investment status
+            # Ensure the investment is in a failed state
             if investment.status != 'failed':
                 return Response({
                     'status': 'error',
-                    'message': 'Investment is not marked as failed; refund cannot be processed'
+                    'message': 'Refund can only be processed for failed investments'
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Process the refund
+            # Process refund within a transaction
             with transaction.atomic():
+                # Refund the investment
                 self.process_refund(investment)
 
-            # Notify the user
-            notification = self.create_refund_notification(investment)
+                # Create a notification
+                notification = self.create_refund_notification(investment)
 
             return Response({
                 'status': 'success',
@@ -2002,29 +1938,28 @@ class InvestmentRefundView(APIView):
                 'status': 'error',
                 'message': 'Investment not found'
             }, status=status.HTTP_404_NOT_FOUND)
-
         except Exception as e:
-            print(f"Error during refund: {e}")
             return Response({
                 'status': 'error',
-                'message': 'Failed to process refund'
+                'message': f"Internal server error: {e}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def process_refund(self, investment):
-        """Handles the refund process, including updating balances and creating deposits."""
+        """
+        Processes the refund for a failed investment.
+        """
         network = investment.network
-
         if not network:
             raise ValueError("Investment has no associated network.")
 
         if network.balance is None:
             raise ValueError("Network balance is not set.")
 
-        # Update network balance
+        # Update the network balance
         network.balance = F('balance') + investment.amount
         network.save()
 
-        # Create a deposit record for the user
+        # Create a deposit record for the refunded amount
         Deposit.objects.create(
             user=investment.user,
             network=network,
@@ -2033,35 +1968,38 @@ class InvestmentRefundView(APIView):
             description=f'Refund for failed investment {investment.id}'
         )
 
-        # Update investment status to refunded
+        # Update the investment status
         investment.status = 'refunded'
         investment.save()
 
     def create_refund_notification(self, investment):
-        """Creates a notification for the user and optionally sends an email."""
+        """
+        Creates a notification for the user regarding the refund.
+        """
         message = (
             f"Your investment of ${investment.amount} in {investment.investment_plan.name} "
-            f"on the {investment.network.name} network has been refunded."
+            f"on {investment.network.name} network has been refunded."
         )
 
         # Send email notification
         try:
             send_mail(
-                subject='Investment Refund Notification',
-                message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[investment.user.email_address],
-                fail_silently=True
+                'Investment Refund Notification',
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [investment.user.email_address],
+                fail_silently=False
             )
         except Exception as e:
             print(f"Failed to send refund email: {e}")
 
-        # Create a notification record
+        # Create and return a notification object
         return Notification.objects.create(
             user=investment.user,
             message=message,
             type='INVESTMENT_REFUND'
         )
+
 
 
 class AdminFundUserNetworkView(APIView):
