@@ -1965,7 +1965,7 @@ class InvestmentRefundView(APIView):
             network=network,
             amount_usd=investment.amount,
             status='completed',
-            description=f'Refund for failed investment {investment.id}'
+            # description=f'Refund for failed investment {investment.id}'
         )
 
         # Update the investment status
