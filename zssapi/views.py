@@ -1926,6 +1926,7 @@ class InvestmentRefundView(APIView):
             return Response({
                 'status': 'success',
                 'message': 'Investment refunded successfully',
+                'investment_status': investment.status,
                 'notification': {
                     'id': notification.id,
                     'message': notification.message,
@@ -1965,7 +1966,6 @@ class InvestmentRefundView(APIView):
             network=network,
             amount_usd=investment.amount,
             status='completed',
-            # description=f'Refund for failed investment {investment.id}'
         )
 
         # Update the investment status
