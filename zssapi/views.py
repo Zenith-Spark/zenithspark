@@ -1718,7 +1718,6 @@ class AdminNetworkBalanceView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 
-    
 class UserManagementView(APIView):
     permission_classes = [IsAdminUser]
 
@@ -1744,7 +1743,7 @@ class UserManagementView(APIView):
                 message = f"""
                 Dear {user.full_name},
 
-                Your account on Zenith Spark Station has been reactivated. We apologize for any inconvinence.
+                Your account on Zenith Spark Station has been reactivated. We apologize for any inconvenience.
                 You can now log in to your account.
 
                 Best regards,
@@ -1788,7 +1787,8 @@ class UserManagementView(APIView):
             self.send_account_status_email(user, action)
 
             return Response({
-                "message": f"User {user.email_address} has been suspended"
+                "message": f"User {user.email_address} has been suspended",
+                "user_status": user.is_active  # Include the user's status
             }, status=status.HTTP_200_OK)
 
         elif action == 'activate':
@@ -1799,7 +1799,8 @@ class UserManagementView(APIView):
             self.send_account_status_email(user, action)
 
             return Response({
-                "message": f"User {user.email_address} has been activated"
+                "message": f"User {user.email_address} has been activated",
+                "user_status": user.is_active  # Include the user's status
             }, status=status.HTTP_200_OK)
 
         elif action == 'delete':
@@ -1810,13 +1811,14 @@ class UserManagementView(APIView):
             user.delete()
 
             return Response({
-                "message": f"User {user.email_address} has been permanently banned"
+                "message": f"User {user.email_address} has been permanently banned",
+                "user_status": "deleted"  # Status indicates the user is deleted
             }, status=status.HTTP_200_OK)
 
         return Response({
             "error": "Invalid action"
         }, status=status.HTTP_400_BAD_REQUEST)
-    
+
 
 
 class AdminAllUserBalancesView(APIView):
