@@ -1996,8 +1996,7 @@ class InvestmentRefundView(APIView):
         # Create and return a notification object
         return Notification.objects.create(
             user=investment.user,
-            message=message,
-            type='INVESTMENT_REFUND'
+            message=message
         )
 
 
