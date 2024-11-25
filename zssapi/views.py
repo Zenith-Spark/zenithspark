@@ -839,7 +839,7 @@ class InvestmentAdminView(APIView):
         serializer = self.serializer_class(investments, many=True)
         return Response(serializer.data)
 
-     def put(self, request, investment_id):
+    def put(self, request, investment_id):
         try:
             investment = Investment.objects.get(id=investment_id)
         except Investment.DoesNotExist:
@@ -889,8 +889,8 @@ class InvestmentAdminView(APIView):
                     'created_at': notification.created_at
                 }
             
-            return Response(response_data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+         return Response(response_data)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def create_status_notification(self, investment):
         status_messages = {
