@@ -839,7 +839,7 @@ class InvestmentAdminView(APIView):
         serializer = self.serializer_class(investments, many=True)
         return Response(serializer.data)
 
-    def put(self, request, investment_id):
+     def put(self, request, investment_id):
         try:
             investment = Investment.objects.get(id=investment_id)
         except Investment.DoesNotExist:
@@ -859,12 +859,22 @@ class InvestmentAdminView(APIView):
 
         # Handle status update explicitly
         if 'status' in data:
+            previous_status = investment.status  # Store the previous status
             investment.status = data['status']
             investment.save()
-            
-            # Create notification and send email
-            notification = self.create_status_notification(investment)
-            self.send_status_email(investment)
+
+            # If the status is changed to 'completed', calculate the total refund
+            if investment.status == 'completed':
+                total_refund = investment.amount + investment.expected_profit  # Total amount to refund
+                network = investment.network  # Get the associated network
+
+                # Update the network balance
+                network.balance += total_refund
+                network.save()
+
+                # Create notification and send email
+                notification = self.create_status_notification(investment)
+                self.send_status_email(investment)
 
         serializer = self.serializer_class(investment, data=data, partial=True)
         if serializer.is_valid():
