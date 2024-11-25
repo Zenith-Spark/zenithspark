@@ -889,7 +889,7 @@ class InvestmentAdminView(APIView):
                     'created_at': notification.created_at
                 }
             
-         return Response(response_data)
+            return Response(response_data)
     return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def create_status_notification(self, investment):
