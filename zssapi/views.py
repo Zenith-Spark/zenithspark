@@ -853,15 +853,17 @@ class InvestmentAdminView(APIView):
             try:
                 network = Network.objects.get(name__iexact=data['network_name'])
                 investment.network = network
-                investment.save()
+                
             except Network.DoesNotExist:
                 return Response({'error': 'Invalid network name'}, status=status.HTTP_400_BAD_REQUEST)
 
+        notification = None
+        total_refund = None
         # Handle status update explicitly
         if 'status' in data:
             previous_status = investment.status  # Store the previous status
             investment.status = data['status']
-            investment.save()
+            
 
             # If the status is changed to 'completed', calculate the total refund
             if investment.status == 'completed':
@@ -881,6 +883,9 @@ class InvestmentAdminView(APIView):
             updated_investment = serializer.save()
             response_data = self.serializer_class(updated_investment).data
             
+            if total_refund is not None:
+                response_data['total_refund'] = total_refund
+                
             # Include notification in response if status was updated
             if 'status' in data and notification:
                 response_data['notification'] = {
