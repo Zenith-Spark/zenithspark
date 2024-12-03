@@ -853,31 +853,18 @@ class InvestmentAdminView(APIView):
             try:
                 network = Network.objects.get(name__iexact=data['network_name'])
                 investment.network = network
+                investment.save()
             except Network.DoesNotExist:
                 return Response({'error': 'Invalid network name'}, status=status.HTTP_400_BAD_REQUEST)
 
-
-        notification = None  # Initialize notification variable
-        total_refund = None  # Initialize total refund variable
         # Handle status update explicitly
-        if 'status' in data and data['status'] == 'completed':
-            try:
-                with transaction.atomic():
-                    # Calculate the total refund
-                    total_refund = investment.amount + investment.expected_profit
-                    network = investment.network
-
-                    # Update the network balance
-                    network.balance += total_refund
-                    network.save()
-
-                    # Save the investment changes (if necessary)
-                    investment.status = 'completed'  # Assuming you want to update the status explicitly
-                    investment.save()
-
-                    # Create notification and send email
-                    notification = self.create_status_notification(investment)
-                    self.send_status_email(investment)
+        if 'status' in data:
+            investment.status = data['status']
+            investment.save()
+            
+            # Create notification and send email
+            notification = self.create_status_notification(investment)
+            self.send_status_email(investment)
 
             except Exception as e:
                 print(f"Error processing the refund: {e}")
@@ -888,9 +875,6 @@ class InvestmentAdminView(APIView):
             updated_investment = serializer.save()
             response_data = self.serializer_class(updated_investment).data
             
-            if total_refund is not None:
-                response_data['total_refund'] = total_refund
-
             # Include notification in response if status was updated
             if 'status' in data and notification:
                 response_data['notification'] = {
