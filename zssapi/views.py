@@ -856,19 +856,29 @@ class InvestmentAdminView(APIView):
                 investment.save()
             except Network.DoesNotExist:
                 return Response({'error': 'Invalid network name'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Handle status update explicitly
-        if 'status' in data:
-            investment.status = data['status']
-            investment.save()
             
-            # Create notification and send email
-            notification = self.create_status_notification(investment)
-            self.send_status_email(investment)
+        notification = None  # Initialize notification variable
+        total_refund = None  # Initialize total refund variable    
+        if 'status' in data and data['status'] == 'completed':
+            try:
+                with transaction.atomic():
+                    # Calculate and update balance
+                    total_refund = investment.amount + investment.expected_profit
+                    network = investment.network
+
+                    network.balance += total_refund
+                    network.save()
+
+                    # Update investment status
+                    investment.status = 'completed'
+                    investment.save()
+
+                # Create notification and send email after transaction
+                notification = self.create_status_notification(investment)
+                self.send_status_email(investment)
 
             except Exception as e:
-                print(f"Error processing the refund: {e}")
-
+                print(f"Error processing the refund or notification: {e}")
 
         serializer = self.serializer_class(investment, data=data, partial=True)
         if serializer.is_valid():
